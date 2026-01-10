@@ -58,4 +58,4 @@ Use the bedfile made in step 4 as the mask bedfile.
 
 ## 6 Edit and validate ARG, estimate and validate Ne models
 
-This step requires interactive use of the jupyter notebook [argcheck.ipynb](argcheck.ipynb). You will need to have `msprime` `tskit` `tszip` `demes` `demesdraw` and `yaml` among other packages. There are many places in the notebood where you will need to **modify** the code or variables to suite your files/system. Example outputs for maize are shown in the notebook preview.
+This step requires interactive use of the jupyter notebook [argcheck.ipynb](argcheck.ipynb). You will need to have `msprime` `tskit` `tszip` `demes` `demesdraw` and `yaml` among other packages. There are many places in the notebook where you will need to **modify** the code or variables to suite your files/system. Example outputs for maize are shown in the notebook preview.
