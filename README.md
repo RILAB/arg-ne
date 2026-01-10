@@ -40,5 +40,12 @@ Should contain only biallelic SNPs in vcf passing all checks.
 `.clean` will be the SNP data you give to SINGER. You will also need a `.bed` format file of bp that are masked. 
 Usually these are everything in your `.filtered` file.
 `filt_to_bed.py` will take a vcf and make a bedfile. 
+
 Run using: `python3 filt_to_bed.py <filtered vcf file> --merge`. 
 Dropping the `--merge` will result in a bigger bedfile with many small, contiguous regions and is not recommended.
+
+## 5 Run SINGER
+
+Use Nate Pope's [snakemake pipeline](https://github.com/nspope/singer-snakemake/tree/main).
+Using the steps above, there is no need to have a filter file. 
+Use the bedfile made in step 4 as the mask bedfile. 
