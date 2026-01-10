@@ -10,12 +10,15 @@ Instructions for these steps are [here](https://github.com/baoxingsong/AnchorWav
 
 ## 3 Clean gvcf
 
-Assuming your gvcf is formatted like the [example file](https://github.com/RILAB/arg-ne/blob/main/test.vcf.gz).
+Assuming your gvcf is formatted like the [example file](https://github.com/RILAB/arg-ne/blob/main/test.vcf.gz) and is for a single chromosome. Please split any multi-chromosome gvcfs into individual chromosomes before continuing.
+
 Run `split.py` using `python3 split.py --depth=<depth> <filename.vcf>`. 
+Normally you will want to set depth equal to your sample size. In some files depth is recorded as 30 for each individual, so you should set depth to 30 x sample size.
 
 This script writes three files, `.inv`, `.filtered`, and `.clean`. Each includes the regular header.
 File outputs will be large when unzipped, it is recommended to run with `--gzip-output` to automatically zip output files.
 Writes to stderr log of how many bp (expanding `END` segments) were written to each file.
+Your gvcf **must** have invariant sites. If there are no invariant sites, go back to [step 2](https://github.com/RILAB/arg-ne/blob/main/README.md#2-assemble-a-gvcf).
 
 ##### `.inv` 
 Contains lines from vcf where:
