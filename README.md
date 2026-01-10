@@ -10,7 +10,8 @@ Instructions for these steps are [here](https://github.com/baoxingsong/AnchorWav
 
 ## 3 Clean gvcf
 
-Assuming your gvcf is formatted like the [example file](https://github.com/RILAB/arg-ne/blob/main/test.vcf.gz).
+Assuming your gvcf is formatted like the [example file](https://github.com/RILAB/arg-ne/blob/main/test.vcf.gz) and is for a single chromosome. Please split any multi-chromosome gvcfs into individual chromosomes before continuing.
+
 Run `split.py` using `python3 split.py --depth=<depth> <filename.vcf>`. 
 Normally you will want to set depth equal to your sample size. In some files depth is recorded as 30 for each individual, so you should set depth to 30 x sample size.
 
