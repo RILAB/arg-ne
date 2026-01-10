@@ -1,4 +1,3 @@
-
 ## 1 Align genomes to reference
 
 Align each assembly to the reference using [anchorwave](https://github.com/baoxingsong/AnchorWave).
@@ -11,12 +10,17 @@ Instructions for these steps are [here](https://github.com/baoxingsong/AnchorWav
 
 ## 3 Clean gvcf
 
+Assuming your gvcf is formatted like the [example file](https://github.com/RILAB/arg-ne/blob/main/test.vcf.gz).
 Run `split.py` using `python3 split.py --depth=<depth> <filename.vcf>`. 
 
 This script writes three files, `.inv`, `.filtered`, and `.clean`. Each includes the regular header.
 
 ##### `.inv` 
-Contains lines from vcf where `INFO` is `.` OR `INFO` contains `END=`, and expands `END=` lines for each bp. 
+Contains lines from vcf where:
+- `INFO` is `.`
+-  `INFO` contains `END=`
+
+For multi-bp lines (with `END=`, the script copies the line once for each bp. 
 This means the number of non-header lines (e.g. from `wc -l`) should represent the number of invariant bp in the file.
 
 ##### `.filtered`
