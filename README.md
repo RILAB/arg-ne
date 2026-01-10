@@ -14,7 +14,8 @@ Assuming your gvcf is formatted like the [example file](https://github.com/RILAB
 Run `split.py` using `python3 split.py --depth=<depth> <filename.vcf>`. 
 
 This script writes three files, `.inv`, `.filtered`, and `.clean`. Each includes the regular header.
-File outputs may be large when unzipped, so run with `--gzip-output` to automatically zip output files.
+File outputs will be large when unzipped, it is recommended to run with `--gzip-output` to automatically zip output files.
+Writes to stderr log of how many bp (expanding `END` segments) were written to each file.
 
 ##### `.inv` 
 Contains lines from vcf where:
