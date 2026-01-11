@@ -32,13 +32,13 @@ This means the number of non-header lines (e.g. from `wc -l`) should represent t
 ##### `.filtered`
 Contains lines from vcf where any of the following occur:
 
-- `DP` is less than the `depth` parameter given
 - the line contains `*` as an allele
-- multiallelic SNPs
 - symbolic / non-ACGT alleles
+- `DP` is less than the `depth` parameter given. Since we are using whole genome alignment we are assuming sites with DP < depth but no explicit indels "*" have missing data still due to structural variation of some sort and should be removed.
+
 
 ##### `.clean`
-Should contain only biallelic SNPs in vcf passing all checks as well as mutliallelic SNPs with no indels that will be filtered out by SINGER snakemake pipleine later.
+Should contain only biallelic SNPs in vcf passing all checks as well as mutliallelic SNPs with no indels that will be filtered out by SINGER snakemake pipleine later (and used to adjust the mutation rate. 
 
 ### 3B Prep for SINGER
 
