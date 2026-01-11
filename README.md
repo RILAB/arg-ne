@@ -33,12 +33,11 @@ Contains lines from vcf where any of the following occur:
 
 - `DP` is less than the `depth` parameter given
 - the line contains `*` as an allele
-- multi-bp REF allele
 - multiallelic SNPs
 - symbolic / non-ACGT alleles
 
 ##### `.clean`
-Should contain only biallelic SNPs in vcf passing all checks.
+Should contain only biallelic SNPs in vcf passing all checks as well as mutliallelic SNPs with no indels that will be filtered out by SINGER snakemake pipleine later.
 
 ## 4 Prep for SINGER
 
