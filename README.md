@@ -36,7 +36,7 @@ This means the number of non-header lines (e.g. from `wc -l`) should represent t
 Contains lines from vcf where any of the following occur:
 
 - the line contains `*` as an allele
-- symbolic / non-ACGT alleles
+- symbolic / non-ACGT alleles. Among other things, this removes bp with `N`. This is OK if you have assemblies and you assume genotyping error is effectively zero. If you cannot assume that, then these alleles would need to go into `.clean` but the script cannot currently do that.
 - `DP` is less than the `depth` parameter given. Since we are using whole genome alignment we are assuming sites with DP < depth but no explicit indels "*" have missing data still due to structural variation of some sort and should be removed.
 
 ##### `.clean`
@@ -52,6 +52,15 @@ Usually these are everything in your `.filtered` file.
 
 Run using: `python3 filt_to_bed.py <vcf file of filtered snps> --merge`. 
 Dropping the `--merge` will result in a bigger bedfile with many small, contiguous regions and is not recommended.
+
+### validate
+
+As alignment software and GATK versions may produce gvcfs of different formats, you should validate your output makes sense. 
+Some suggestions include:
+
+- `grep -v "#" test.inv | cut -f 5 | sort -n | uniq` -- check that invariant sites file only has "NON_REF" as an ALT allele
+- `grep -v "#"  test.clean | cut -f 8 | sort -n | uniq` -- check that the INFO field has all "DP=<depth>" values
+- `grep -v "#" test.filtered | grep -v "*" | less -S` -- scroll through some filtered records (excluding indels) and check they should all be removed and none are invariant or good SNPs
 
 ## 4 Run SINGER
 
