@@ -11,10 +11,13 @@ Instructions for these steps are [here](https://github.com/baoxingsong/AnchorWav
 ## 3 Clean gvcf & prep for SINGER
 
 ### 3A Clean gvcf 
-Assuming your gvcf is formatted like the [example file](https://github.com/RILAB/arg-ne/blob/main/test.vcf.gz) and is for a single chromosome. Please split any multi-chromosome gvcfs into individual chromosomes before continuing.
+Assuming your gvcf is formatted like the [example file](https://github.com/RILAB/arg-ne/blob/main/test.vcf.gz) and is for a single chromosome. 
+Please split any multi-chromosome gvcfs into individual chromosomes before continuing.
+The script can read both gzipped and unzipped vcfs.
 
 Run `split.py` using `python3 split.py --depth=<depth> <filename.vcf>`. 
-Normally you will want to set depth equal to your sample size. In some files depth is recorded as 30 for each individual, so you should set depth to 30 x sample size.
+Normally you will want to set depth equal to your sample size. 
+In some files, for example, depth is recorded as 30 for each individual, so you should set depth to 30 x sample size.
 
 This script writes three files, `.inv`, `.filtered`, and `.clean`. Each includes the regular header.
 File outputs will be large when unzipped, it is recommended to run with `--gzip-output` to automatically zip output files.
@@ -36,9 +39,9 @@ Contains lines from vcf where any of the following occur:
 - symbolic / non-ACGT alleles
 - `DP` is less than the `depth` parameter given. Since we are using whole genome alignment we are assuming sites with DP < depth but no explicit indels "*" have missing data still due to structural variation of some sort and should be removed.
 
-
 ##### `.clean`
-Should contain only biallelic SNPs in vcf passing all checks as well as mutliallelic SNPs with no indels that will be filtered out by SINGER snakemake pipleine later (and used to adjust the mutation rate. 
+Should contain only biallelic SNPs in vcf passing all checks as well as mutliallelic SNPs with no indels that will be filtered out by SINGER snakemake pipleine later (and used to adjust the mutation rate). 
+If you run the script with `--filter-multiallelic` this will send multi-allelic site to the `.filtered` file instead. 
 
 ### 3B Prep for SINGER
 

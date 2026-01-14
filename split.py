@@ -13,20 +13,65 @@ Key feature:
 - Any record with INFO containing END= is EXPANDED so that the record
   is replicated for every base position from POS to END (inclusive).
 
-⚠️ WARNING:
+âš ï¸ WARNING:
 Expanding END spans can massively increase file size if END-POS is large.
 """
 
 from __future__ import annotations
-
 import argparse
 import gzip
 from pathlib import Path
 from typing import TextIO
 import sys
+import datetime
+import getpass
+import platform
+import os
+
+SCRIPT_NAME = "vcf-splitter"
+SCRIPT_VERSION = "1.0.0"
 
 # Valid single-base SNP alleles
 VALID_BASES = {"A", "C", "G", "T"}
+
+# ------------------------------------------------------------
+# UTILITY: modify header to track provenance of split files!
+# ------------------------------------------------------------
+def build_provenance_headers(
+    in_path: str,
+    out_inv: str,
+    out_filt: str,
+    out_clean: str,
+    depth: int,
+    gzip_output: bool,
+) -> list[str]:
+    """
+    Return a list of VCF meta-header lines (starting with '##') that describe
+    how this file was produced.
+    These lines must be written BEFORE the final '#CHROM\tPOS\t...' header line.
+    """
+    ts = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+    user = getpass.getuser()
+    host = platform.node()
+
+    cmdline = " ".join([os.path.basename(sys.argv[0])] + sys.argv[1:])
+
+    lines = [
+        f"##source={SCRIPT_NAME} v{SCRIPT_VERSION}",
+        f"##run.user={user}",
+        f"##run.host={host}",
+        f"##run.timestamp={ts}",
+        f"##run.commandline={cmdline}",
+        f"##input.file={in_path}",
+        f"##output.inv={out_inv}",
+        f"##output.filtered={out_filt}",
+        f"##output.clean={out_clean}",
+        f"##parameters.depth_threshold={depth}",
+        f"##parameters.gzip_output={'true' if gzip_output else 'false'}",
+    ]
+    lines.append("##notes=Records with valid INFO/END are expanded across POS..END and routed to .inv; other filters apply as documented.")
+    return [ln + "\n" for ln in lines]
+
 
 
 # ------------------------------------------------------------
@@ -117,6 +162,11 @@ def main() -> None:
         description="Split/filter a VCF into inv/filtered/clean, expanding END spans."
     )
     ap.add_argument(
+        "--filter-multiallelic",
+        action="store_true",
+        help="Filter sites with multiple A/C/G/T alleles (e.g. ALT=T,G)"
+    )
+    ap.add_argument(
         "vcf",
         help="Input VCF (.vcf or .vcf.gz)"
     )
@@ -162,136 +212,158 @@ def main() -> None:
     def open_out(path, gzip_output):
         if gzip_output:
             return gzip.open(path + ".gz", "wt")
-        return open(path, "wt")
+        return open(path, "wt", encoding="utf-8")
 
+    
     with open_maybe_gzip(in_path, "rt") as fin, \
-        open_out(out_inv, args.gzip_output) as f_inv, \
-        open_out(out_filt, args.gzip_output) as f_filt, \
-        open_out(out_clean, args.gzip_output) as f_clean:
+         open_out(out_inv, args.gzip_output) as f_inv, \
+         open_out(out_filt, args.gzip_output) as f_filt, \
+         open_out(out_clean, args.gzip_output) as f_clean:
+    
+        # --- NEW: buffer header lines until we see '#CHROM' ---
+        header_buffer: list[str] = []
+        headers_written = False
+    
+        # Prebuild provenance lines (to be inserted before '#CHROM')
+        prov_lines = build_provenance_headers(
+            in_path=in_path,
+            out_inv=out_inv + (".gz" if args.gzip_output else ""),
+            out_filt=out_filt + (".gz" if args.gzip_output else ""),
+            out_clean=out_clean + (".gz" if args.gzip_output else ""),
+            depth=depth,
+            gzip_output=args.gzip_output,
+        )
+    
 
-        # Iterate over each line in the VCF
         for raw in fin:
-
-            # ---------- Header lines ----------
-            # Copy headers to ALL outputs unchanged
+            # ---------------- Header handling ----------------
             if raw.startswith("#"):
-                f_inv.write(raw)
-                f_filt.write(raw)
-                f_clean.write(raw)
+                #print file format
+                if raw.startswith("##fileformat"):
+                    f_inv.write(raw)
+                    f_filt.write(raw)
+                    f_clean.write(raw)
+                # Buffer meta/header lines until we see the '#CHROM ... INFO' line.
+                elif raw.startswith("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO"):
+                    # first: inject provenance headers (##...)
+                    for ln in prov_lines:
+                        f_inv.write(ln)
+                        f_filt.write(ln)
+                        f_clean.write(ln)
+                    
+                    # 2nd: write buffered input meta-headers (##...)
+                    for h in header_buffer:
+                        f_inv.write(h)
+                        f_filt.write(h)
+                        f_clean.write(h)
+
+                    
+
+                    # Third: write the #CHROM header line itself
+                    f_inv.write(raw)
+                    f_filt.write(raw)
+                    f_clean.write(raw)
+                    headers_written = True
+                else:
+                    header_buffer.append(raw)
                 continue
 
-            # Remove trailing newline and split into columns
+            # If the input was missing '#CHROM' (malformed), we never wrote headers.
+            # Flush buffered headers + provenance BEFORE the first data record.
+            if not headers_written:
+                for h in header_buffer:
+                    f_inv.write(h)
+                    f_filt.write(h)
+                    f_clean.write(h)
+                for ln in prov_lines:
+                    f_inv.write(ln)
+                    f_filt.write(ln)
+                    f_clean.write(ln)
+                headers_written = True
+
+            # ---------------- Data line processing ----------------
             line = raw.rstrip("\n")
             cols = line.split("\t")
 
-            # ---------- Malformed line ----------
-            # Less than 8 columns means INFO is missing
+            # Malformed line (no INFO column) => filtered
             if len(cols) < 8:
                 f_filt.write(line + "\n")
+                filtered_bp += 1
                 continue
 
-            # VCF columns (0-based):
-            # 0 CHROM
-            # 1 POS
-            # 2 ID
-            # 3 REF
-            # 4 ALT
-            # 5 QUAL
-            # 6 FILTER
-            # 7 INFO
+            # VCF columns (0-based): 0 CHROM, 1 POS, 3 REF, 4 ALT, 7 INFO
             ref = cols[3]
             alt_field = cols[4]
             info = cols[7]
 
             # ============================================================
-            # 1) .inv (highest priority)
+            # 1) .inv (highest priority): INFO == '.' OR contains END=
+            # If END= exists, expand across POS..END inclusive.
             # ============================================================
-            # Conditions:
-            # - INFO == "."
-            # - OR INFO contains END=
-            #
-            # If END= exists, EXPAND the record across POS..END inclusive
-            # by replicating the line and only modifying the POS column.
             end_val = extract_end(info)
-
             if info == "." or end_val is not None:
-
-                # No END → write once
                 if end_val is None:
                     f_inv.write(line + "\n")
+                    inv_bp += 1
                     continue
 
-                # Parse starting POS
                 try:
                     pos0 = int(cols[1])
                 except ValueError:
-                    # If POS is malformed, write line once without expansion
                     f_inv.write(line + "\n")
+                    inv_bp += 1
                     continue
 
-                # If END <= POS, nothing to expand
                 if end_val <= pos0:
                     f_inv.write(line + "\n")
+                    inv_bp += 1
                     continue
 
                 span = end_val - pos0 + 1
                 inv_bp += span
-                # Expand POS..END inclusive
                 for pos in range(pos0, end_val + 1):
                     cols[1] = str(pos)
                     f_inv.write("\t".join(cols) + "\n")
-
-                continue  # ensure record goes ONLY to .inv
+                continue
 
             # ============================================================
             # 2) .filtered
             # ============================================================
-
-            # Parse ALT alleles
             alts = [a.strip() for a in alt_field.split(",")] if alt_field != "." else []
-
-            # Remove <NON_REF> from all ALT-based logic
             alts_no_nonref = [a for a in alts if a != "<NON_REF>"]
 
-            # DP-based filtering
             dp = extract_dp(info)
             dp_low = (dp is not None and dp < depth)
-
-            # Deletion allele
             has_star = ("*" in alts_no_nonref)
-
-            # Multi-base REF allele (indel or MNV)
             ref_long = (len(ref) > 1)
 
-            # Multiple SNP alleles (e.g., A,C)
             valid_base_alts = [a for a in alts_no_nonref if a in VALID_BASES]
             multiple_valid_bases = (len(set(valid_base_alts)) > 1)
 
-            # Any ALT allele that is not A/C/G/T/* (e.g., <DEL>, N, AT)
             has_non_acgt_nonstar = any(
                 (a not in VALID_BASES) and (a != "*") for a in alts_no_nonref
             )
 
-            if (
-                dp_low or
-                has_star or
-                ref_long or # multiple_valid_bases or <- removed as multiallelic need to be filtered out by SINGER snakemake
-                has_non_acgt_nonstar
-            ):
+            if ( 
+                dp_low or 
+                has_star or 
+                ref_long or 
+                (args.filter_multiallelic and multiple_valid_bases) or
+                has_non_acgt_nonstar):
                 f_filt.write(line + "\n")
                 filtered_bp += 1
                 continue
 
             # ============================================================
-            # 3) .clean (everything else)
+            # 3) .clean
             # ============================================================
             f_clean.write(line + "\n")
             clean_bp += 1
-            
-    print("Output summary (non-header bp):",file=sys.stderr)
-    print(f"  inv:      {inv_bp:,}",file=sys.stderr)
-    print(f"  filtered: {filtered_bp:,}",file=sys.stderr)
-    print(f"  clean:    {clean_bp:,}",file=sys.stderr)
-
+                
+        print("Output summary (non-header bp):",file=sys.stderr)
+        print(f"  inv:      {inv_bp:,}",file=sys.stderr)
+        print(f"  filtered: {filtered_bp:,}",file=sys.stderr)
+        print(f"  clean:    {clean_bp:,}",file=sys.stderr)
+    
 if __name__ == "__main__":
     main()
