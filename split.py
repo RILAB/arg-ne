@@ -27,6 +27,7 @@ import datetime
 import getpass
 import platform
 import os
+from tqdm import tqdm
 
 SCRIPT_NAME = "vcf-splitter"
 SCRIPT_VERSION = "1.0.0"
@@ -234,8 +235,10 @@ def main() -> None:
             gzip_output=args.gzip_output,
         )
     
-
+        pbar = tqdm(unit="records", mininterval=1.0)
         for raw in fin:
+            pbar.update(1)
+
             # ---------------- Header handling ----------------
             if raw.startswith("#"):
                 #print file format
@@ -359,7 +362,7 @@ def main() -> None:
             # ============================================================
             f_clean.write(line + "\n")
             clean_bp += 1
-                
+        pbar.close()        
         print("Output summary (non-header bp):",file=sys.stderr)
         print(f"  inv:      {inv_bp:,}",file=sys.stderr)
         print(f"  filtered: {filtered_bp:,}",file=sys.stderr)
