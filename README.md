@@ -1,4 +1,5 @@
-An overall visual guide to the pipeline we are developing is [Alt text](image-url "Optional title")
+An overall visual guide to the pipeline we are developing is [Alt text](/image (174).png
+ "Optional title")
 
 ## 1 Align genomes to reference
 
