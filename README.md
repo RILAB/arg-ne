@@ -1,3 +1,5 @@
+An overall visual guide to the pipeline we are developing is [here](https://github.com/RILAB/arg-ne/blob/jri_test/image%20(174).png)
+
 ## 1 Align genomes to reference
 
 Align each assembly to the reference using [anchorwave](https://github.com/baoxingsong/AnchorWave).
