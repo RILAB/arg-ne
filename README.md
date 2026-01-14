@@ -1,4 +1,4 @@
-An overall visual guide to the pipeline we are developing is [/image (174).png](https://github.com/RILAB/arg-ne/blob/jri_test/image%20(174).png)
+An overall visual guide to the pipeline we are developing is [here](https://github.com/RILAB/arg-ne/blob/jri_test/image%20(174).png)
  "Optional title")
 
 ## 1 Align genomes to reference
