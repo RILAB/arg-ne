@@ -21,6 +21,7 @@ The script can read both gzipped and unzipped vcfs.
 Run `split.py` using `python3 split.py --depth=<depth> <filename.vcf>`. 
 Normally you will want to set depth equal to your sample size. 
 In some files, for example, depth is recorded as 30 for each individual, so you should set depth to 30 x sample size.
+In addtioin, if you run the script with `--filter-multiallelic`, this will send multi-allelic sites to the `.filtered` file described below. 
 
 This script writes three files, `.inv`, `.filtered`, and `.clean`. Each includes the regular header.
 File outputs will be large when unzipped, it is recommended to run with `--gzip-output` to automatically zip output files.
