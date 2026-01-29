@@ -13,6 +13,8 @@ Individual `.maf` files need to be converted to `.gvcf` and then combined to a s
 We recommend doing this separately by chromosome. 
 Instructions for these steps are [here](https://github.com/baoxingsong/AnchorWave/blob/master/doc/GATK.md).
 
+Note: GATK can fail to merge gvcfs if your genomes have very large indels. In this case, please run `dropSV.sh` first to remove large indels. Run `./dropSV.sh -h` for options.
+
 ## 2 GVCF parsing
 
 ### 2A Clean gvcf 
