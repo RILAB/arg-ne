@@ -16,9 +16,8 @@ Instructions for these steps are [here](https://github.com/baoxingsong/AnchorWav
 Note: GATK can fail to merge gvcfs if your genomes have very large indels. In this case, please run `dropSV.sh` first to remove large indels. Run `./dropSV.sh -h` for options.
 
 ## 2 GVCF parsing
-
 ### 2A Clean gvcf 
-Assuming your gvcf is formatted like the [example file](https://github.com/RILAB/arg-ne/blob/main/test.vcf.gz) and is for a single chromosome. 
+We assume your gvcf is formatted like the [example file](https://github.com/RILAB/arg-ne/blob/main/test.vcf.gz) and is for a single chromosome. 
 Please split any multi-chromosome gvcfs into individual chromosomes before continuing.
 The script can read both gzipped and unzipped vcfs.
 
@@ -30,7 +29,8 @@ In addition, if you run the script with `--filter-multiallelic`, this will send 
 This script writes three files, `.inv`, `.filtered`, and `.clean`. Each includes the regular header.
 File outputs will be large when unzipped, it is recommended to run with `--gzip-output` to automatically zip output files.
 Writes to stderr log of how many bp (expanding `END` segments) were written to each file.
-Your gvcf **must** have invariant sites. If there are no invariant sites, go back to [step 2](https://github.com/RILAB/arg-ne/blob/main/README.md#2-assemble-a-gvcf).
+Your gvcf **must** have invariant sites. If there are no invariant sites, go back to [step 2](https://github.com/RILAB/arg-ne/blob/main/README.md#2-gvcf-parsing
+).
 
 ##### `.inv` 
 Contains lines from vcf where:
