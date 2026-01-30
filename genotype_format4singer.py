@@ -38,18 +38,35 @@ def vcf4singer(filename):
                     nf.write(f'{line}')
                 else:
                     line = line.strip('\n').split('\t')
+     		        format_field = line[8]
+                    format_keys = format_field.split(':')
+                    try:
+                        ad_idx = format_keys.index("AD")
+                    except ValueError:
+                        ad_idx = None
                     allele_str = ''
                     for i in range(9,len(line)):
-                        ref_read_depth = line[i].split(':')[1].split(',')[0]
-                        if ref_read_depth == '0':
-                            allele = '1'
-                            allele_str = allele_str + '\t' + allele
-                        else:
-                            allele = "0"
-                            allele_str = allele_str + '\t' + allele
+                        sample = line[i]
+                        allele = "."
+                        if sample not in (".", "./.", ".|."):
+                            sample_parts = sample.split(':')
+                            if ad_idx is not None and ad_idx < len(sample_parts):
+                                ad_field = sample_parts[ad_idx]
+                                ref_read_depth = ad_field.split(',')[0] if ad_field not in (".", "") else "."
+                                if ref_read_depth != ".":
+                                    allele = '1' if ref_read_depth == '0' else '0'
+                        allele_str = allele_str + '\t' + allele
+
+ #                       ref_read_depth = line[i].split(':')[1].split(',')[0]
+ #                       if ref_read_depth == '0':
+ #                           allele = '1'
+ #                           allele_str = allele_str + '\t' + allele
+ #                       else:
+ #                           allele = "0"
+ #                           allele_str = allele_str + '\t' + allele
                     newline = '\t'.join(line[:2])
-                    newline1 = '\t'.join(line[5:9])
-                    #name = 'GT'
+		            newline1 = '\t'.join(line[5:8]) + '\tGT'
+                    #newline1 = '\t'.join(line[5:9])
                     ID = f'snp_{line[0]}_{line[1]}'
                     nf.write(f'{newline}\t{ID}\t{line[3]}\t{line[4].replace(",<NON_REF>","")}\t{newline1}{allele_str}\n')
 
