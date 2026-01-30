@@ -19,7 +19,7 @@ Note: GATK can fail to merge gvcfs if your genomes have very large indels. In th
 ### 2A Clean gvcf 
 We assume your gvcf is formatted like the [example file](https://github.com/RILAB/arg-ne/blob/main/test.vcf.gz) and is for a single chromosome. 
 Please split any multi-chromosome gvcfs into individual chromosomes before continuing.
-The script can read both gzipped and unzipped vcfs.
+The script can read both gzipped and unzipped vcfs. 
 
 Run `split.py` using `python3 split.py --depth=<depth> <filename.vcf>`. 
 Normally you will want to set depth equal to your sample size. 
@@ -52,6 +52,12 @@ Should contain only biallelic SNPs in vcf passing all checks as well as mutliall
 **Note:** If you run the script with `--filter-multiallelic` this will send multi-allelic site to the `.filtered` file instead. 
 
 ### 2B Prep for SINGER
+
+Before sending to SINGER, you may need to reformat your genotypes. VCFs from anchorwave often have genotypes using depth like:
+
+`13      216881  .       G       A,<NON_REF>     .       .       DP=120  GT:AD:PL:DP     .:.:.:. .:30,0,0:0,90,90:30     .:.:.:. .:30,0,0:0,90,90:30     .:30,0,0:0,90,90:30     .:0,30,0:90,90,0:30     .:.:.:.`
+
+In this case, you will need to run `genotype_format4singer.py` on your `.clean` file before continuing.
 
 `.clean` will be the SNP data you give to SINGER. 
 You will also need a `.bed` format file of bp that are masked. 
