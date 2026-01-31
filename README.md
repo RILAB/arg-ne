@@ -27,6 +27,7 @@ In some files, for example, depth is recorded as 30 for each individual, so you 
 In addition, if you run the script with `--filter-multiallelic`, this will send multi-allelic sites to the `.filtered` file described below. 
 
 This script writes three files, `.inv`, `.filtered`, and `.clean`. Each includes the regular header.
+It also writes a `.missing.bed` file (no header) listing bp positions absent from the input VCF (i.e., not covered by invariant END ranges, indel spans, or variable sites), in BED 0-based half-open format.
 File outputs will be large when unzipped, it is recommended to run with `--gzip-output` to automatically zip output files.
 Writes to stderr log of how many bp (expanding `END` segments) were written to each file.
 Your gvcf **must** have invariant sites. If there are no invariant sites, go back to [step 2](https://github.com/RILAB/arg-ne/blob/main/README.md#2-gvcf-parsing
@@ -61,11 +62,11 @@ In this case, you will need to run `genotype_format4singer.py` on your `.clean` 
 
 `.clean` will be the SNP data you give to SINGER. 
 You will also need a `.bed` format file of bp that are masked. 
-Usually these are everything in your `.filtered` file plus any large indels removed by `dropSV.sh`.
-`filt_to_bed.py` will take a vcf and make a bedfile, and will also include `dropped_indels.bed` if it exists (looks in the input directory first, then current working directory).
+Usually these are everything in your `.filtered` file plus any large indels removed by `dropSV.sh` and any missing positions.
+`filt_to_bed.py` will take a vcf and make a bedfile, and will also include `dropped_indels.bed` if it exists (looks in the input directory first, then current working directory) and a missing-bed file (default: `<prefix>.missing.bed`).
 
-Run using: `python3 filt_to_bed.py <vcf file of filtered snps> --merge [--dropped-bed /path/to/dropped_indels.bed]`. 
-Dropping the `--merge` will result in a bigger bedfile with many small, contiguous regions and is not recommended.
+Run using: `python3 filt_to_bed.py <vcf file of filtered snps> [--dropped-bed /path/to/dropped_indels.bed] [--missing-bed /path/to/<prefix>.missing.bed] [--no-merge]`. 
+Using `--no-merge` will result in a bigger bedfile with many small, contiguous regions and is not recommended.
 
 ### 2C validate
 

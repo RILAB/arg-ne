@@ -3,8 +3,8 @@
 filtered_vcf_to_bed.py
 
 Read a *.filtered VCF (or VCF-like) file and write a BED file containing the
-basepair positions of each record. If a dropped-indels BED is provided (or
-auto-detected), its intervals are also included in the output.
+basepair positions of each record. If dropped-indels and/or missing BED files
+are provided (or auto-detected), their intervals are also included in the output.
 
 - Skips VCF header lines beginning with '#'
 - Uses CHROM (col 1) and POS (col 2)
@@ -17,8 +17,10 @@ auto-detected), its intervals are also included in the output.
 
 Example:
   python filtered_vcf_to_bed.py input.filtered --out input.filtered.bed
-  python filtered_vcf_to_bed.py input.filtered --merge
+  python filtered_vcf_to_bed.py input.filtered
   python filtered_vcf_to_bed.py input.filtered --dropped-bed /path/to/dropped_indels.bed
+  python filtered_vcf_to_bed.py input.filtered --missing-bed /path/to/input.missing.bed
+  python filtered_vcf_to_bed.py input.filtered --no-merge
 """
 
 from __future__ import annotations
@@ -66,6 +68,15 @@ def find_dropped_bed(in_path: str) -> str | None:
     return None
 
 
+def default_missing_bed(in_path: str) -> str:
+    path = in_path
+    if path.endswith(".gz"):
+        path = path[:-3]
+    if path.endswith(".filtered"):
+        path = path[:-9]
+    return path + ".missing.bed"
+
+
 def read_bed_intervals(path: str, by_chrom: Dict[str, List[Tuple[int, int]]]) -> None:
     with open(path, "rt", encoding="utf-8") as fin:
         for raw in fin:
@@ -99,21 +110,32 @@ def main() -> None:
         ),
     )
     ap.add_argument(
-        "--merge",
+        "--missing-bed",
+        default=None,
+        help=(
+            "Optional BED of missing positions. Defaults to <input>.missing.bed "
+            "(same prefix as the input .filtered file)."
+        ),
+    )
+    ap.add_argument(
+        "--no-merge",
         action="store_true",
-        help="Sort and merge overlapping/adjacent intervals per chromosome.",
+        help="Do not sort/merge overlapping or adjacent intervals.",
     )
     args = ap.parse_args()
 
     in_path = args.filtered
     out_path = args.out if args.out else (in_path + ".bed")
     dropped_bed = args.dropped_bed or find_dropped_bed(in_path)
+    missing_bed = args.missing_bed or default_missing_bed(in_path)
+    if not os.path.isfile(missing_bed):
+        missing_bed = None
 
-    # If merging, collect intervals by chromosome
+    # Collect intervals by chromosome
     by_chrom: Dict[str, List[Tuple[int, int]]] = {}
 
     with open_maybe_gzip(in_path, "rt") as fin:
-        if args.merge or dropped_bed:
+        if (not args.no_merge) or dropped_bed or missing_bed:
             for raw in fin:
                 if not raw or raw.startswith("#"):
                     continue
@@ -150,13 +172,15 @@ def main() -> None:
 
     if dropped_bed:
         read_bed_intervals(dropped_bed, by_chrom)
+    if missing_bed:
+        read_bed_intervals(missing_bed, by_chrom)
 
-    # If we got here, --merge was enabled: sort + merge then write
+    # Default behavior is to sort + merge unless --no-merge is given.
     with open(out_path, "wt", encoding="utf-8") as fout:
         for chrom in sorted(by_chrom.keys()):
             intervals = by_chrom[chrom]
             intervals.sort(key=lambda x: (x[0], x[1]))
-            output_intervals = merge_intervals(intervals) if args.merge else intervals
+            output_intervals = intervals if args.no_merge else merge_intervals(intervals)
             for s, e in output_intervals:
                 fout.write(f"{chrom}\t{s}\t{e}\n")
 
