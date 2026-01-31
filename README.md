@@ -37,6 +37,15 @@ In some files, for example, depth is recorded as 30 for each individual, so you 
 If your samples are not inbred, you may need to change this by a factor of two. 
 In addition, if you run the script with `--filter-multiallelic`, this will send multi-allelic sites to the `.filtered` file described below. 
 
+Alternatively, you can use `split_and_mask.sh` to run `split.py` followed by `filt_to_bed.py` in one SLURM job:
+`sbatch split_and_mask.sh -p /path/to/prefix -d <depth> [--filter-multiallelic] [--no-gzip] [--no-merge]`.
+
+VCFs from anchorwave often have genotypes using depth like:
+
+`13      216881  .       G       A,<NON_REF>     .       .       DP=120  GT:AD:PL:DP     .:.:.:. .:30,0,0:0,90,90:30     .:.:.:. .:30,0,0:0,90,90:30     .:30,0,0:0,90,90:30     .:0,30,0:90,90,0:30     .:.:.:.`
+
+`split.py` will automatically reformat to genotypes for SINGER when needed based on this pattern.
+
 This script writes three files, `.inv`, `.filtered`, and `.clean`. Each includes the regular header.
 It also writes a `.missing.bed` file (no header) listing bp positions absent from the input VCF (i.e., not covered by invariant END ranges, indel spans, or variable sites), in BED 0-based half-open format.
 File outputs will be large when unzipped, it is recommended to run with `--gzip-output` to automatically zip output files.
@@ -65,11 +74,6 @@ Should contain only biallelic SNPs in vcf passing all checks as well as mutliall
 
 ### 2B Prep for SINGER
 
-Before sending to SINGER, you may need to reformat your genotypes. VCFs from anchorwave often have genotypes using depth like:
-
-`13      216881  .       G       A,<NON_REF>     .       .       DP=120  GT:AD:PL:DP     .:.:.:. .:30,0,0:0,90,90:30     .:.:.:. .:30,0,0:0,90,90:30     .:30,0,0:0,90,90:30     .:0,30,0:90,90,0:30     .:.:.:.`
-
-`split.py` will automatically reformat `.clean` for SINGER when needed based on AD/genotype patterns.
 `.clean` will be the SNP data you give to SINGER. 
 You will also need a `.bed` format file of bp that are masked. 
 Usually these are everything in your `.filtered` file plus any large indels removed by `dropSV.py` and any missing positions.
