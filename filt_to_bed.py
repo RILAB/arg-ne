@@ -3,8 +3,8 @@
 filtered_vcf_to_bed.py
 
 Read a *.filtered VCF (or VCF-like) file and write a BED file containing the
-basepair positions of each record. If dropped-indels and/or missing BED files
-are provided (or auto-detected), their intervals are also included in the output.
+basepair positions of each record. Dropped-indels and missing BED files are
+included based on the shared prefix.
 
 - Skips VCF header lines beginning with '#'
 - Uses CHROM (col 1) and POS (col 2)
@@ -16,11 +16,8 @@ are provided (or auto-detected), their intervals are also included in the output
 - Optionally sorts and merges overlapping/adjacent intervals per chromosome.
 
 Example:
-  python filtered_vcf_to_bed.py input.filtered --out input.filtered.bed
-  python filtered_vcf_to_bed.py input.filtered
-  python filtered_vcf_to_bed.py input.filtered --dropped-bed /path/to/dropped_indels.bed
-  python filtered_vcf_to_bed.py input.filtered --missing-bed /path/to/input.missing.bed
-  python filtered_vcf_to_bed.py input.filtered --no-merge
+  python filtered_vcf_to_bed.py /path/to/sample.gvcf.gz
+  python filtered_vcf_to_bed.py sample.gvcf --no-merge
 """
 
 from __future__ import annotations
@@ -28,6 +25,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import os
+import sys
 from typing import TextIO, Dict, List, Tuple
 
 
@@ -56,11 +54,14 @@ def merge_intervals(intervals: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
     return merged
 
 
-def find_dropped_bed(in_path: str) -> str | None:
-    input_dir = os.path.dirname(os.path.abspath(in_path))
+def find_gvcf(path_or_prefix: str) -> str | None:
+    if os.path.isfile(path_or_prefix):
+        return path_or_prefix
     candidates = [
-        os.path.join(input_dir, "dropped_indels.bed"),
-        os.path.join(os.getcwd(), "dropped_indels.bed"),
+        path_or_prefix + ".gvcf.gz",
+        path_or_prefix + ".gvcf",
+        path_or_prefix + ".vcf.gz",
+        path_or_prefix + ".vcf",
     ]
     for path in candidates:
         if os.path.isfile(path):
@@ -68,13 +69,12 @@ def find_dropped_bed(in_path: str) -> str | None:
     return None
 
 
-def default_missing_bed(in_path: str) -> str:
-    path = in_path
-    if path.endswith(".gz"):
-        path = path[:-3]
-    if path.endswith(".filtered"):
-        path = path[:-9]
-    return path + ".missing.bed"
+def prefix_from_gvcf(path_or_prefix: str) -> str:
+    path = path_or_prefix
+    for suffix in (".gvcf.gz", ".gvcf", ".vcf.gz", ".vcf"):
+        if path.endswith(suffix):
+            return path[: -len(suffix)]
+    return path
 
 
 def read_bed_intervals(path: str, by_chrom: Dict[str, List[Tuple[int, int]]]) -> None:
@@ -97,25 +97,96 @@ def read_bed_intervals(path: str, by_chrom: Dict[str, List[Tuple[int, int]]]) ->
             by_chrom.setdefault(chrom, []).append((start, end))
 
 
+def count_vcf_records(path: str) -> int | None:
+    try:
+        count = 0
+        with open_maybe_gzip(path, "rt") as fin:
+            for raw in fin:
+                if raw.startswith("#"):
+                    continue
+                if raw.strip():
+                    count += 1
+        return count
+    except OSError:
+        return None
+
+
+def parse_contig_lengths(path: str) -> Dict[str, int]:
+    lengths: Dict[str, int] = {}
+    with open_maybe_gzip(path, "rt") as fin:
+        for raw in fin:
+            if not raw.startswith("##"):
+                break
+            if raw.startswith("##contig=<") and "length=" in raw:
+                content = raw.strip().lstrip("##contig=<").rstrip(">")
+                parts = {kv.split("=", 1)[0]: kv.split("=", 1)[1] for kv in content.split(",") if "=" in kv}
+                cid = parts.get("ID")
+                clen = parts.get("length")
+                if cid and clen and clen.isdigit():
+                    lengths[cid] = int(clen)
+    return lengths
+
+
+def extract_end(info: str) -> int | None:
+    if info == ".":
+        return None
+    for field in info.split(";"):
+        if field.startswith("END="):
+            try:
+                return int(field.split("=", 1)[1])
+            except ValueError:
+                return None
+    return None
+
+
+def compute_chrom_length(path: str) -> tuple[str | None, int | None]:
+    contigs = parse_contig_lengths(path)
+    last_chrom: str | None = None
+    last_end: int | None = None
+    with open_maybe_gzip(path, "rt") as fin:
+        for raw in fin:
+            if raw.startswith("#"):
+                continue
+            cols = raw.rstrip("\n").split("\t")
+            if len(cols) < 4:
+                continue
+            chrom = cols[0]
+            try:
+                pos = int(cols[1])
+            except ValueError:
+                continue
+            ref = cols[3]
+            end_val = extract_end(cols[7]) if len(cols) >= 8 else None
+            if end_val is not None and end_val >= pos:
+                end = end_val
+            else:
+                end = pos + max(len(ref), 1) - 1
+            last_chrom = chrom
+            last_end = end
+    if last_chrom is None:
+        return None, None
+    if last_chrom in contigs:
+        return last_chrom, contigs[last_chrom]
+    return last_chrom, last_end
+
+
+def sum_merged_bp(by_chrom: Dict[str, List[Tuple[int, int]]]) -> int:
+    total = 0
+    for chrom in by_chrom:
+        intervals = by_chrom[chrom]
+        if not intervals:
+            continue
+        intervals.sort(key=lambda x: (x[0], x[1]))
+        merged = merge_intervals(intervals)
+        total += sum(e - s for s, e in merged)
+    return total
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Convert a .filtered VCF to a BED of bp positions.")
-    ap.add_argument("filtered", help="Input .filtered file (optionally .gz)")
-    ap.add_argument("--out", default=None, help="Output BED path (default: <input>.bed)")
     ap.add_argument(
-        "--dropped-bed",
-        default=None,
-        help=(
-            "Optional BED of dropped SV/indel spans. Defaults to auto-detecting "
-            "'dropped_indels.bed' in the input directory, then current working directory."
-        ),
-    )
-    ap.add_argument(
-        "--missing-bed",
-        default=None,
-        help=(
-            "Optional BED of missing positions. Defaults to <input>.missing.bed "
-            "(same prefix as the input .filtered file)."
-        ),
+        "gvcf",
+        help="Path to the gVCF/VCF (or its prefix) used to derive related files",
     )
     ap.add_argument(
         "--no-merge",
@@ -124,56 +195,89 @@ def main() -> None:
     )
     args = ap.parse_args()
 
-    in_path = args.filtered
-    out_path = args.out if args.out else (in_path + ".bed")
-    dropped_bed = args.dropped_bed or find_dropped_bed(in_path)
-    missing_bed = args.missing_bed or default_missing_bed(in_path)
-    if not os.path.isfile(missing_bed):
-        missing_bed = None
+    gvcf_arg = args.gvcf
+    gvcf_path = find_gvcf(gvcf_arg)
+    if gvcf_path is None:
+        sys.stderr.write(
+            f"ERROR: gVCF not found: '{gvcf_arg}' (expected file or .gvcf/.vcf extension).\n"
+        )
+        sys.exit(1)
+    prefix = prefix_from_gvcf(gvcf_path)
+    filtered_path = prefix + ".filtered"
+    filtered_gz = filtered_path + ".gz"
+    if os.path.isfile(filtered_gz):
+        filtered_path = filtered_gz
+    out_path = prefix + ".filtered.bed"
+    dropped_bed = prefix + ".dropped_indels.bed"
+    missing_bed = prefix + ".missing.bed"
 
     # Collect intervals by chromosome
     by_chrom: Dict[str, List[Tuple[int, int]]] = {}
 
-    with open_maybe_gzip(in_path, "rt") as fin:
-        if (not args.no_merge) or dropped_bed or missing_bed:
-            for raw in fin:
-                if not raw or raw.startswith("#"):
-                    continue
-                line = raw.rstrip("\n")
-                cols = line.split("\t")
-                if len(cols) < 2:
-                    continue
-                chrom = cols[0]
-                try:
-                    pos = int(cols[1])
-                except ValueError:
-                    continue
-                start = pos - 1
-                end = pos
-                by_chrom.setdefault(chrom, []).append((start, end))
-        else:
-            with open(out_path, "wt", encoding="utf-8") as fout:
-                for raw in fin:
-                    if not raw or raw.startswith("#"):
-                        continue
-                    line = raw.rstrip("\n")
-                    cols = line.split("\t")
-                    if len(cols) < 2:
-                        continue
-                    chrom = cols[0]
-                    try:
-                        pos = int(cols[1])
-                    except ValueError:
-                        continue
-                    start = pos - 1
-                    end = pos
-                    fout.write(f"{chrom}\t{start}\t{end}\n")
-            return
+    if not os.path.isfile(filtered_path):
+        sys.stderr.write(f"ERROR: filtered VCF not found: '{filtered_path}'.\n")
+        sys.exit(1)
+    if not os.path.isfile(missing_bed):
+        sys.stderr.write(f"ERROR: missing BED not found: '{missing_bed}'.\n")
+        sys.exit(1)
+    if not os.path.isfile(dropped_bed):
+        sys.stderr.write(f"ERROR: dropped indels BED not found: '{dropped_bed}'.\n")
+        sys.exit(1)
 
-    if dropped_bed:
-        read_bed_intervals(dropped_bed, by_chrom)
-    if missing_bed:
-        read_bed_intervals(missing_bed, by_chrom)
+    with open_maybe_gzip(filtered_path, "rt") as fin:
+        for raw in fin:
+            if not raw or raw.startswith("#"):
+                continue
+            line = raw.rstrip("\n")
+            cols = line.split("\t")
+            if len(cols) < 2:
+                continue
+            chrom = cols[0]
+            try:
+                pos = int(cols[1])
+            except ValueError:
+                continue
+            start = pos - 1
+            end = pos
+            by_chrom.setdefault(chrom, []).append((start, end))
+
+    read_bed_intervals(dropped_bed, by_chrom)
+    read_bed_intervals(missing_bed, by_chrom)
+
+    merged_bp = sum_merged_bp(by_chrom)
+
+    chrom, chrom_len = compute_chrom_length(gvcf_path)
+    if chrom is None or chrom_len is None:
+        sys.stderr.write(
+            f"ERROR: unable to determine chromosome length from gVCF '{gvcf_path}'.\n"
+        )
+        sys.exit(1)
+
+    inv_path = prefix + ".inv"
+    clean_path = prefix + ".clean"
+    if os.path.isfile(inv_path + ".gz"):
+        inv_path = inv_path + ".gz"
+    if os.path.isfile(clean_path + ".gz"):
+        clean_path = clean_path + ".gz"
+
+    inv_bp = count_vcf_records(inv_path) if os.path.isfile(inv_path) else None
+    clean_bp = count_vcf_records(clean_path) if os.path.isfile(clean_path) else None
+
+    if inv_bp is None or clean_bp is None:
+        sys.stderr.write(
+            f"ERROR: unable to read .inv and/or .clean for length check "
+            f"(inv='{inv_path}', clean='{clean_path}').\n"
+        )
+        sys.exit(1)
+
+    total_bp = merged_bp + inv_bp + clean_bp
+    if total_bp != chrom_len:
+        sys.stderr.write(
+            f"ERROR: bp sum mismatch for {chrom}: "
+            f"filtered_bed={merged_bp}, inv={inv_bp}, clean={clean_bp}, "
+            f"total={total_bp}, chrom_len={chrom_len}\n"
+        )
+        sys.exit(1)
 
     # Default behavior is to sort + merge unless --no-merge is given.
     with open(out_path, "wt", encoding="utf-8") as fout:
