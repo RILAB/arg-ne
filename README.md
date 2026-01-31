@@ -22,8 +22,7 @@ To merge per-sample gVCFs after filtering large indels, use `gatk_merge_gvcf.sh`
 It runs `dropSV.py`, bgzip/tabix, and then GATK GenomicsDBImport + GenotypeGVCFs.
 Submit with: `sbatch gatk_merge_gvcf.sh -g /path/to/gvcf_dir -r /path/to/reference.fa [-l interval] [-c max_indel_len]` (default cutoff: 9101264).
 
-      OPTIONAL: `dropSV.py` can be run separately to remove large indels. Run `./dropSV.py -h` for options. This writes       `cleangVCF/dropped_indels.bed` (full-span intervals).
-Example: `python3 dropSV.py -d /path/to/gvcfs -c 1000000`
+      OPTIONAL: `dropSV.py` can be run separately to remove large indels. Run `./dropSV.py -h` for options. This writes       `cleangVCF/dropped_indels.bed` (full-span intervals). 
 
 ## 2 GVCF parsing
 ### 2A Clean gvcf 
