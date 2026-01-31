@@ -13,7 +13,7 @@ Individual `.maf` files need to be converted to `.gvcf` and then combined to a s
 We recommend doing this separately by chromosome. 
 Instructions for these steps are [here](https://github.com/baoxingsong/AnchorWave/blob/master/doc/GATK.md).
 
-Note: GATK can fail to merge gvcfs if your genomes have very large indels. In this case, please run `dropSV.sh` first to remove large indels. Run `./dropSV.sh -h` for options.
+Note: GATK can fail to merge gvcfs if your genomes have very large indels. In this case, please run `dropSV.sh` first to remove large indels. Run `./dropSV.sh -h` for options. This also writes `dropped_indels.bed` (full-span intervals) alongside the cleaned gVCFs.
 
 ## 2 GVCF parsing
 ### 2A Clean gvcf 
@@ -61,10 +61,10 @@ In this case, you will need to run `genotype_format4singer.py` on your `.clean` 
 
 `.clean` will be the SNP data you give to SINGER. 
 You will also need a `.bed` format file of bp that are masked. 
-Usually these are everything in your `.filtered` file.
-`filt_to_bed.py` will take a vcf and make a bedfile. 
+Usually these are everything in your `.filtered` file plus any large indels removed by `dropSV.sh`.
+`filt_to_bed.py` will take a vcf and make a bedfile, and will also include `dropped_indels.bed` if it exists (looks in the input directory first, then current working directory).
 
-Run using: `python3 filt_to_bed.py <vcf file of filtered snps> --merge`. 
+Run using: `python3 filt_to_bed.py <vcf file of filtered snps> --merge [--dropped-bed /path/to/dropped_indels.bed]`. 
 Dropping the `--merge` will result in a bigger bedfile with many small, contiguous regions and is not recommended.
 
 ### 2C validate

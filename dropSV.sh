@@ -68,10 +68,18 @@ cd cleangVCF
 
 for gvcf in $SRC/*.gvcf.gz; do
   bcftools view "$gvcf" | bcftools query -f '%CHROM\t%POS\t%REF\t%ALT\n' |
-  awk -v cutoff=$CUTOFF -v file="$gvcf" '{d=length($3)-length($4); if(d<0)d=-d; if(d>cutoff) print file"\t"$1"\t"$2"\t"d}'
+  awk -v cutoff=$CUTOFF -v file="$gvcf" '{d=length($3)-length($4); if(d<0)d=-d; if(d>cutoff) print file"\t"$1"\t"$2"\t"d"\t"length($3)"\t"length($4)}'
 done | sort -k1,1 > super_indels.txt
 
 cut -f1 super_indels.txt | sort -u > need_filter.txt
+
+# Create a merged BED of all dropped indel spans (unique positions only).
+# BED is 0-based, half-open: [start, end). For deletions, span is REF length.
+# For insertions, emit a 1bp interval at the anchor position.
+awk 'BEGIN{OFS="\t"} {pos=$3; r=$5; a=$6; start=pos-1; if(r>a){end=start+r}else{end=pos} print $2, start, end}' super_indels.txt \
+  | sort -k1,1 -k2,2n -k3,3n \
+  | awk 'BEGIN{OFS="\t"} NR==1{c=$1;cs=$2;ce=$3;next} {if($1==c && $2<=ce){if($3>ce)ce=$3}else{print c,cs,ce;c=$1;cs=$2;ce=$3}} END{if(NR>0)print c,cs,ce}' \
+  > dropped_indels.bed
 
 for gvcf in $SRC/*.gvcf.gz; do
     base=$(basename "$gvcf")
@@ -92,6 +100,7 @@ done
 
 cat super_indels.txt | wc -l | awk '{print "Total super large indels identified across all gVCFs: "$1}'
 cat need_filter.txt | wc -l | awk '{print "Total gVCFs with super large indels removed: "$1}'
+echo "Dropped indel positions BED written to" "$(pwd)/dropped_indels.bed"
 
 rm -f bad_sites.tmp need_filter.txt super_indels.txt
 echo "All done. Cleaned gVCFs are in" $(pwd)

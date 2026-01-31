@@ -157,6 +157,7 @@ def main() -> None:
     inv_bp = 0
     filtered_bp = 0
     clean_bp = 0
+    missing_bp = 0
 
 
     # ---------------- Argument parsing ----------------
@@ -209,6 +210,7 @@ def main() -> None:
     out_inv = prefix + ".inv"
     out_filt = prefix + ".filtered"
     out_clean = prefix + ".clean"
+    out_missing = prefix + ".missing.bed"
 
     # ---------------- Open files ----------------
     def open_out(path, gzip_output):
@@ -220,7 +222,8 @@ def main() -> None:
     with open_maybe_gzip(in_path, "rt") as fin, \
          open_out(out_inv, args.gzip_output) as f_inv, \
          open_out(out_filt, args.gzip_output) as f_filt, \
-         open_out(out_clean, args.gzip_output) as f_clean:
+         open_out(out_clean, args.gzip_output) as f_clean, \
+         open(out_missing, "wt", encoding="utf-8") as f_missing:
     
         # --- NEW: buffer header lines until we see '#CHROM' ---
         header_buffer: list[str] = []
@@ -238,6 +241,8 @@ def main() -> None:
     
         record_count = 0
         last_report_time = time.time()
+        last_chrom: str | None = None
+        last_end: int | None = None
         for raw in fin:
             record_count += 1
             if record_count % 100_000 == 0:
@@ -304,6 +309,44 @@ def main() -> None:
             # ---------------- Data line processing ----------------
             line = raw.rstrip("\n")
             cols = line.split("\t")
+
+            # Track missing bp: any gap between covered positions.
+            if len(cols) >= 2:
+                chrom = cols[0]
+                try:
+                    pos_for_missing = int(cols[1])
+                except ValueError:
+                    pos_for_missing = None
+                if pos_for_missing is not None:
+                    if chrom != last_chrom:
+                        last_chrom = chrom
+                        last_end = None
+
+                    ref_for_missing = cols[3] if len(cols) >= 4 else "N"
+                    end_for_missing = None
+                    if len(cols) >= 8:
+                        end_for_missing = extract_end(cols[7])
+
+                    if end_for_missing is not None and end_for_missing >= pos_for_missing:
+                        curr_start = pos_for_missing
+                        curr_end = end_for_missing
+                    else:
+                        ref_len = len(ref_for_missing) if ref_for_missing else 1
+                        curr_start = pos_for_missing
+                        curr_end = pos_for_missing + max(ref_len, 1) - 1
+
+                    if last_end is None:
+                        last_end = curr_end
+                    elif curr_start <= last_end + 1:
+                        if curr_end > last_end:
+                            last_end = curr_end
+                    else:
+                        gap_start = last_end + 1
+                        gap_end = curr_start - 1
+                        if gap_end >= gap_start:
+                            f_missing.write(f"{chrom}\t{gap_start - 1}\t{gap_end}\n")
+                            missing_bp += (gap_end - gap_start + 1)
+                        last_end = curr_end
 
             # Malformed line (no INFO column) => filtered
             if len(cols) < 8:
@@ -384,6 +427,7 @@ def main() -> None:
         print(f"  inv:      {inv_bp:,}",file=sys.stderr)
         print(f"  filtered: {filtered_bp:,}",file=sys.stderr)
         print(f"  clean:    {clean_bp:,}",file=sys.stderr)
+        print(f"  missing:  {missing_bp:,}",file=sys.stderr)
     
 if __name__ == "__main__":
     main()
