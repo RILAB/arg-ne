@@ -4,10 +4,17 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=100G
 #SBATCH --time=24:00:00
-#SBATCH --output=%x_%A_%a.out
-#SBATCH --error=%x_%A_%a.err
+#SBATCH --output=logs/%x_%A_%a.out
+#SBATCH --error=logs/%x_%A_%a.err
 
 set -euo pipefail
+
+if ! command -v module >/dev/null 2>&1; then
+  echo "ERROR: environment modules not available (module command not found)."
+  exit 1
+fi
+
+module list || true
 
 MAF_DIR=""
 OUT_DIR=""

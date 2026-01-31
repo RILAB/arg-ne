@@ -3,16 +3,17 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=100G
 #SBATCH --time=48:00:00
-#SBATCH --output=%x_%A.out
-#SBATCH --error=%x_%A.err
+#SBATCH --output=logs/%x_%A.out
+#SBATCH --error=logs/%x_%A.err
 
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 -g <gvcf_dir> -r <reference_fasta> [-l interval]"
+  echo "Usage: $0 -g <gvcf_dir> -r <reference_fasta> [-l interval] [-c cutoff]"
   echo "  -g  Directory containing per-sample .gvcf.gz files"
   echo "  -r  Reference FASTA (used for GATK and indexing)"
   echo "  -l  Optional interval (e.g., chr1) passed to GenomicsDBImport/GenotypeGVCFs"
+  echo "  -c  Optional indel length cutoff passed to dropSV.py (default: dropSV.py default)"
   exit 1
 }
 
@@ -20,6 +21,9 @@ if ! command -v module >/dev/null 2>&1; then
   echo "ERROR: environment modules not available (module command not found)."
   exit 1
 fi
+
+LOG_DIR="${SLURM_SUBMIT_DIR:-.}/logs"
+mkdir -p "$LOG_DIR"
 
 module load picard || { echo "ERROR: failed to load picard module"; exit 1; }
 module load tabix || { echo "ERROR: failed to load tabix module"; exit 1; }
@@ -33,12 +37,14 @@ gatk --version || true
 GVCF_DIR=""
 REF_FASTA=""
 INTERVAL=""
+DROP_CUTOFF=""
 
-while getopts "g:r:l:" opt; do
+while getopts "g:r:l:c:" opt; do
   case "$opt" in
     g) GVCF_DIR="$OPTARG" ;;
     r) REF_FASTA="$OPTARG" ;;
     l) INTERVAL="$OPTARG" ;;
+    c) DROP_CUTOFF="$OPTARG" ;;
     *) usage ;;
   esac
 done
@@ -77,7 +83,11 @@ if [ ! -f "$DICT" ]; then
 fi
 
 # Run dropSV.py on the input directory.
-python3 "$DROP_SV" -d "$GVCF_DIR"
+if [ -n "$DROP_CUTOFF" ]; then
+  python3 "$DROP_SV" -d "$GVCF_DIR" -c "$DROP_CUTOFF"
+else
+  python3 "$DROP_SV" -d "$GVCF_DIR"
+fi
 
 CLEAN_DIR="${GVCF_DIR%/}/cleangVCF"
 if [ ! -d "$CLEAN_DIR" ]; then
@@ -99,7 +109,10 @@ for f in "$CLEAN_DIR"/*.gvcf.gz; do
   fi
 done
 
-mapfile -t GVCF_FILES < <(find "$CLEAN_DIR" -maxdepth 1 -type f -name "*.gvcf.gz" | sort)
+GVCF_FILES=()
+while IFS= read -r line; do
+  GVCF_FILES+=("$line")
+done < <(find "$CLEAN_DIR" -maxdepth 1 -type f -name "*.gvcf.gz" | sort)
 if [ "${#GVCF_FILES[@]}" -eq 0 ]; then
   echo "ERROR: no .gvcf.gz files found in $CLEAN_DIR"
   exit 1
