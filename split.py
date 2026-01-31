@@ -1,34 +1,35 @@
 #!/usr/bin/env python3
 """
-VCF splitter / filter with END-span expansion
+VCF splitter / filter with END-span expansion.
 
-This script reads a VCF (optionally gzipped) and writes each record
-to EXACTLY ONE of three output files:
+Purpose
+-------
+Split a gVCF into three mutually exclusive outputs:
+  <prefix>.inv       invariant sites (INFO="." or END=... spans)
+  <prefix>.filtered  sites removed for quality/format reasons
+  <prefix>.clean     usable variant sites for downstream inference
 
-  <prefix>.inv
-  <prefix>.filtered
-  <prefix>.clean
+The script also emits <prefix>.missing.bed, a mask of positions absent from
+the input gVCF (gaps between covered positions). This helps track accessiblity.
 
-Key feature:
-- Any record with INFO containing END= is EXPANDED so that the record
-  is replicated for every base position from POS to END (inclusive).
-
-âš ï¸ WARNING:
-Expanding END spans can massively increase file size if END-POS is large.
+Key behavior
+------------
+Records with END= in INFO are expanded so each base in [POS, END] is written
+as a separate record in .inv. This can be large.
 """
 
 from __future__ import annotations
+
 import argparse
-import gzip
-from pathlib import Path
-from typing import TextIO
-import sys
 import datetime
 import getpass
-import time
-import platform
+import gzip
 import os
-from tqdm import tqdm
+import platform
+import sys
+import time
+from pathlib import Path
+from typing import TextIO
 
 SCRIPT_NAME = "vcf-splitter"
 SCRIPT_VERSION = "1.0.0"
@@ -37,7 +38,7 @@ SCRIPT_VERSION = "1.0.0"
 VALID_BASES = {"A", "C", "G", "T"}
 
 # ------------------------------------------------------------
-# UTILITY: modify header to track provenance of split files!
+# Provenance header helper
 # ------------------------------------------------------------
 def build_provenance_headers(
     in_path: str,
@@ -48,14 +49,14 @@ def build_provenance_headers(
     gzip_output: bool,
 ) -> list[str]:
     """
-    Return a list of VCF meta-header lines (starting with '##') that describe
-    how this file was produced.
-    These lines must be written BEFORE the final '#CHROM\tPOS\t...' header line.
+    Build extra VCF header lines describing how the outputs were produced.
+    These must appear before the #CHROM header line.
     """
     ts = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
     user = getpass.getuser()
     host = platform.node()
 
+    # Record the exact command line for reproducibility.
     cmdline = " ".join([os.path.basename(sys.argv[0])] + sys.argv[1:])
 
     lines = [
@@ -71,7 +72,9 @@ def build_provenance_headers(
         f"##parameters.depth_threshold={depth}",
         f"##parameters.gzip_output={'true' if gzip_output else 'false'}",
     ]
-    lines.append("##notes=Records with valid INFO/END are expanded across POS..END and routed to .inv; other filters apply as documented.")
+    lines.append(
+        "##notes=Records with valid INFO/END are expanded across POS..END and routed to .inv; other filters apply as documented."
+    )
     return [ln + "\n" for ln in lines]
 
 
@@ -154,6 +157,7 @@ def main() -> None:
     Main entry point.
     Handles argument parsing, file routing, and record classification.
     """
+    # Counters track base pairs written to each output.
     inv_bp = 0
     filtered_bp = 0
     clean_bp = 0
@@ -225,11 +229,11 @@ def main() -> None:
          open_out(out_clean, args.gzip_output) as f_clean, \
          open(out_missing, "wt", encoding="utf-8") as f_missing:
     
-        # --- NEW: buffer header lines until we see '#CHROM' ---
+        # Buffer header lines so we can inject provenance right before #CHROM.
         header_buffer: list[str] = []
         headers_written = False
     
-        # Prebuild provenance lines (to be inserted before '#CHROM')
+        # Prebuild provenance lines (inserted before #CHROM).
         prov_lines = build_provenance_headers(
             in_path=in_path,
             out_inv=out_inv + (".gz" if args.gzip_output else ""),
@@ -245,6 +249,7 @@ def main() -> None:
         last_end: int | None = None
         for raw in fin:
             record_count += 1
+            # Periodic progress line to stderr for large files.
             if record_count % 100_000 == 0:
                 fields = raw.rstrip("\n").split("\t")
                 if len(fields) >= 2:
@@ -263,28 +268,26 @@ def main() -> None:
 
             # ---------------- Header handling ----------------
             if raw.startswith("#"):
-                #print file format
+                # Preserve fileformat line in all outputs.
                 if raw.startswith("##fileformat"):
                     f_inv.write(raw)
                     f_filt.write(raw)
                     f_clean.write(raw)
-                # Buffer meta/header lines until we see the '#CHROM ... INFO' line.
+                # Buffer meta/header lines until we see the #CHROM header line.
                 elif raw.startswith("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO"):
-                    # first: inject provenance headers (##...)
+                    # First: inject provenance headers (##...).
                     for ln in prov_lines:
                         f_inv.write(ln)
                         f_filt.write(ln)
                         f_clean.write(ln)
                     
-                    # 2nd: write buffered input meta-headers (##...)
+                    # Second: write buffered input meta-headers (##...).
                     for h in header_buffer:
                         f_inv.write(h)
                         f_filt.write(h)
                         f_clean.write(h)
 
-                    
-
-                    # Third: write the #CHROM header line itself
+                    # Third: write the #CHROM header line itself.
                     f_inv.write(raw)
                     f_filt.write(raw)
                     f_clean.write(raw)
@@ -293,8 +296,7 @@ def main() -> None:
                     header_buffer.append(raw)
                 continue
 
-            # If the input was missing '#CHROM' (malformed), we never wrote headers.
-            # Flush buffered headers + provenance BEFORE the first data record.
+            # If input is malformed and lacks #CHROM, flush buffered headers now.
             if not headers_written:
                 for h in header_buffer:
                     f_inv.write(h)
@@ -311,6 +313,7 @@ def main() -> None:
             cols = line.split("\t")
 
             # Track missing bp: any gap between covered positions.
+            # We infer covered span from END= when present, else from REF length.
             if len(cols) >= 2:
                 chrom = cols[0]
                 try:
@@ -318,6 +321,7 @@ def main() -> None:
                 except ValueError:
                     pos_for_missing = None
                 if pos_for_missing is not None:
+                    # Reset gap tracking when chromosome changes.
                     if chrom != last_chrom:
                         last_chrom = chrom
                         last_end = None
@@ -327,6 +331,7 @@ def main() -> None:
                     if len(cols) >= 8:
                         end_for_missing = extract_end(cols[7])
 
+                    # Determine span covered by this record for gap tracking.
                     if end_for_missing is not None and end_for_missing >= pos_for_missing:
                         curr_start = pos_for_missing
                         curr_end = end_for_missing
@@ -341,6 +346,7 @@ def main() -> None:
                         if curr_end > last_end:
                             last_end = curr_end
                     else:
+                        # Gap detected: write missing BED interval (0-based, half-open).
                         gap_start = last_end + 1
                         gap_end = curr_start - 1
                         if gap_end >= gap_start:

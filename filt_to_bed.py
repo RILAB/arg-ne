@@ -55,6 +55,11 @@ def merge_intervals(intervals: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
 
 
 def find_gvcf(path_or_prefix: str) -> str | None:
+    """
+    Resolve a gVCF path. Accepts:
+      - an explicit file path, or
+      - a prefix (tries .gvcf/.vcf with optional .gz).
+    """
     if os.path.isfile(path_or_prefix):
         return path_or_prefix
     candidates = [
@@ -70,6 +75,10 @@ def find_gvcf(path_or_prefix: str) -> str | None:
 
 
 def prefix_from_gvcf(path_or_prefix: str) -> str:
+    """
+    Derive a shared prefix from a gVCF/VCF filename.
+    If no known extension is present, return the string as-is.
+    """
     path = path_or_prefix
     for suffix in (".gvcf.gz", ".gvcf", ".vcf.gz", ".vcf"):
         if path.endswith(suffix):
@@ -78,6 +87,10 @@ def prefix_from_gvcf(path_or_prefix: str) -> str:
 
 
 def read_bed_intervals(path: str, by_chrom: Dict[str, List[Tuple[int, int]]]) -> None:
+    """
+    Load a BED file into a per-chromosome interval map.
+    Assumes 0-based half-open intervals [start, end).
+    """
     with open(path, "rt", encoding="utf-8") as fin:
         for raw in fin:
             if not raw or raw.startswith("#"):
@@ -98,6 +111,9 @@ def read_bed_intervals(path: str, by_chrom: Dict[str, List[Tuple[int, int]]]) ->
 
 
 def count_vcf_records(path: str) -> int | None:
+    """
+    Count non-header records in a VCF/gVCF file.
+    """
     try:
         count = 0
         with open_maybe_gzip(path, "rt") as fin:
@@ -112,6 +128,10 @@ def count_vcf_records(path: str) -> int | None:
 
 
 def parse_contig_lengths(path: str) -> Dict[str, int]:
+    """
+    Parse ##contig header lines to extract reference lengths.
+    Returns a map of contig ID -> length for any lines that include length=.
+    """
     lengths: Dict[str, int] = {}
     with open_maybe_gzip(path, "rt") as fin:
         for raw in fin:
@@ -128,6 +148,9 @@ def parse_contig_lengths(path: str) -> Dict[str, int]:
 
 
 def extract_end(info: str) -> int | None:
+    """
+    Parse END= from a VCF INFO field, if present.
+    """
     if info == ".":
         return None
     for field in info.split(";"):
@@ -140,6 +163,11 @@ def extract_end(info: str) -> int | None:
 
 
 def compute_chrom_length(path: str) -> tuple[str | None, int | None]:
+    """
+    Determine chromosome length from gVCF.
+    Prefer header ##contig length; otherwise use the last covered base.
+    Assumes the file is for a single chromosome.
+    """
     contigs = parse_contig_lengths(path)
     last_chrom: str | None = None
     last_end: int | None = None
@@ -171,6 +199,9 @@ def compute_chrom_length(path: str) -> tuple[str | None, int | None]:
 
 
 def sum_merged_bp(by_chrom: Dict[str, List[Tuple[int, int]]]) -> int:
+    """
+    Merge intervals and return the total covered basepairs.
+    """
     total = 0
     for chrom in by_chrom:
         intervals = by_chrom[chrom]
@@ -195,6 +226,7 @@ def main() -> None:
     )
     args = ap.parse_args()
 
+    # Resolve the gVCF path and derive the shared prefix for all files.
     gvcf_arg = args.gvcf
     gvcf_path = find_gvcf(gvcf_arg)
     if gvcf_path is None:
@@ -211,7 +243,7 @@ def main() -> None:
     dropped_bed = prefix + ".dropped_indels.bed"
     missing_bed = prefix + ".missing.bed"
 
-    # Collect intervals by chromosome
+    # Collect intervals by chromosome from the filtered VCF and mask BEDs.
     by_chrom: Dict[str, List[Tuple[int, int]]] = {}
 
     if not os.path.isfile(filtered_path):
@@ -241,11 +273,14 @@ def main() -> None:
             end = pos
             by_chrom.setdefault(chrom, []).append((start, end))
 
+    # Add dropped-indel and missing-position masks.
     read_bed_intervals(dropped_bed, by_chrom)
     read_bed_intervals(missing_bed, by_chrom)
 
+    # Compute merged bp for the coverage check.
     merged_bp = sum_merged_bp(by_chrom)
 
+    # Determine chromosome length from gVCF header or last covered bp.
     chrom, chrom_len = compute_chrom_length(gvcf_path)
     if chrom is None or chrom_len is None:
         sys.stderr.write(
@@ -253,6 +288,7 @@ def main() -> None:
         )
         sys.exit(1)
 
+    # Read .inv and .clean to validate coverage accounting.
     inv_path = prefix + ".inv"
     clean_path = prefix + ".clean"
     if os.path.isfile(inv_path + ".gz"):
