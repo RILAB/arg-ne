@@ -60,8 +60,7 @@ Before sending to SINGER, you may need to reformat your genotypes. VCFs from anc
 
 `13      216881  .       G       A,<NON_REF>     .       .       DP=120  GT:AD:PL:DP     .:.:.:. .:30,0,0:0,90,90:30     .:.:.:. .:30,0,0:0,90,90:30     .:30,0,0:0,90,90:30     .:0,30,0:90,90,0:30     .:.:.:.`
 
-In this case, you will need to run `genotype_format4singer.py` on your `.clean` file before continuing.
-
+`split.py` will automatically reformat `.clean` for SINGER when needed based on AD/genotype patterns.
 `.clean` will be the SNP data you give to SINGER. 
 You will also need a `.bed` format file of bp that are masked. 
 Usually these are everything in your `.filtered` file plus any large indels removed by `dropSV.py` and any missing positions.
