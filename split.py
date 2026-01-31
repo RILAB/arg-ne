@@ -150,6 +150,56 @@ def extract_end(info: str) -> int | None:
 
 
 # ------------------------------------------------------------
+# Optional reformat for SINGER (if needed)
+# ------------------------------------------------------------
+def needs_singer_reformat(format_field: str, sample_fields: list[str]) -> bool:
+    """
+    Decide whether .clean records should be reformatted to single GTs.
+    Heuristics: AD present and any sample shows depth-style or multi-allele GT.
+    """
+    if "AD" not in format_field.split(":"):
+        return False
+    for sample in sample_fields:
+        if sample in (".", "./.", ".|."):
+            continue
+        if ":" in sample or "/" in sample or "|" in sample:
+            return True
+        if sample.isdigit() and int(sample) > 1:
+            return True
+    return False
+
+
+def format_for_singer(cols: list[str]) -> str:
+    """
+    Convert a .clean record to a SINGER-style format with GT only.
+    Uses AD to infer genotype: ref-depth==0 -> 1, else 0.
+    """
+    format_field = cols[8]
+    format_keys = format_field.split(":")
+    try:
+        ad_idx = format_keys.index("AD")
+    except ValueError:
+        ad_idx = None
+
+    allele_str = ""
+    for sample in cols[9:]:
+        allele = "."
+        if sample not in (".", "./.", ".|."):
+            parts = sample.split(":")
+            if ad_idx is not None and ad_idx < len(parts):
+                ad_field = parts[ad_idx]
+                ref_read_depth = ad_field.split(",")[0] if ad_field not in (".", "") else "."
+                if ref_read_depth != ".":
+                    allele = "1" if ref_read_depth == "0" else "0"
+        allele_str += "\t" + allele
+
+    chrom, pos = cols[0], cols[1]
+    id_field = f"snp_{chrom}_{pos}"
+    alt = cols[4].replace(",<NON_REF>", "")
+    core = "\t".join([chrom, pos, id_field, cols[3], alt])
+    info = "\t".join(cols[5:8]) + "\tGT"
+    return f"{core}\t{info}{allele_str}\n"
+# ------------------------------------------------------------
 # Main driver
 # ------------------------------------------------------------
 def main() -> None:
@@ -162,6 +212,7 @@ def main() -> None:
     filtered_bp = 0
     clean_bp = 0
     missing_bp = 0
+    singer_reformat: bool | None = None
 
 
     # ---------------- Argument parsing ----------------
@@ -426,7 +477,15 @@ def main() -> None:
             # ============================================================
             # 3) .clean
             # ============================================================
-            f_clean.write(line + "\n")
+            if singer_reformat is None:
+                singer_reformat = needs_singer_reformat(cols[8], cols[9:])
+                if singer_reformat:
+                    sys.stderr.write("Reformatting .clean output for SINGER based on AD fields.\n")
+
+            if singer_reformat:
+                f_clean.write(format_for_singer(cols))
+            else:
+                f_clean.write(line + "\n")
             clean_bp += 1
 
         print("Output summary (non-header bp):",file=sys.stderr)
