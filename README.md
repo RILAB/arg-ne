@@ -13,6 +13,12 @@ Individual `.maf` files need to be converted to `.gvcf` and then combined to a s
 We recommend doing this separately by chromosome. 
 Instructions for these steps are [here](https://github.com/baoxingsong/AnchorWave/blob/master/doc/GATK.md).
 
+For this repo, use `maf_to_gvcf.sh` to run tassel on a directory of `.maf` files.
+It expects a reference FASTA located in the same directory as the `.maf` files
+(either `reference.fa` or the only `.fa/.fasta` file in that directory).
+Submit with: `sbatch --array=0-<N-1> maf_to_gvcf.sh -m /path/to/maf_dir -d /path/to/out_dir`.
+Logs are written to `logs/` alongside the SLURM script.
+
 Note: GATK can fail to merge gvcfs if your genomes have very large indels. In this case, please run `dropSV.py` first to remove large indels. Run `./dropSV.py -h` for options. This writes `cleangVCF/dropped_indels.bed` (full-span intervals).
 Example: `python3 dropSV.py -d /path/to/gvcfs -c 1000000`
 
