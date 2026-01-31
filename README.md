@@ -13,7 +13,8 @@ Individual `.maf` files need to be converted to `.gvcf` and then combined to a s
 We recommend doing this separately by chromosome. 
 Instructions for these steps are [here](https://github.com/baoxingsong/AnchorWave/blob/master/doc/GATK.md).
 
-Note: GATK can fail to merge gvcfs if your genomes have very large indels. In this case, please run `dropSV.sh` first to remove large indels. Run `./dropSV.sh -h` for options. This also writes `<prefix>.dropped_indels.bed` (full-span intervals) alongside each cleaned gVCF.
+Note: GATK can fail to merge gvcfs if your genomes have very large indels. In this case, please run `dropSV.py` first to remove large indels. Run `./dropSV.py -h` for options. This also writes `<prefix>.dropped_indels.bed` (full-span intervals) alongside each cleaned gVCF.
+Example: `python3 dropSV.py -d /path/to/gvcfs -c 1000000`
 
 ## 2 GVCF parsing
 ### 2A Clean gvcf 
@@ -62,7 +63,7 @@ In this case, you will need to run `genotype_format4singer.py` on your `.clean` 
 
 `.clean` will be the SNP data you give to SINGER. 
 You will also need a `.bed` format file of bp that are masked. 
-Usually these are everything in your `.filtered` file plus any large indels removed by `dropSV.sh` and any missing positions.
+Usually these are everything in your `.filtered` file plus any large indels removed by `dropSV.py` and any missing positions.
 `filt_to_bed.py` takes a gVCF/VCF filename (or its prefix) and builds a merged mask from `<prefix>.filtered`, `<prefix>.missing.bed`, and `<prefix>.dropped_indels.bed`. It also checks that filtered bed bp + `.inv` bp + `.clean` bp equals the chromosome length inferred from the gVCF header (or last bp if no header length).
 
 Run using: `python3 filt_to_bed.py /path/to/<prefix>.gvcf[.gz] [--no-merge]`. 
