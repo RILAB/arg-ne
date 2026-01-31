@@ -13,7 +13,7 @@ Individual `.maf` files need to be converted to `.gvcf` and then combined to a s
 We recommend doing this separately by chromosome. 
 Instructions for these steps are [here](https://github.com/baoxingsong/AnchorWave/blob/master/doc/GATK.md).
 
-Note: GATK can fail to merge gvcfs if your genomes have very large indels. In this case, please run `dropSV.sh` first to remove large indels. Run `./dropSV.sh -h` for options. This also writes `dropped_indels.bed` (full-span intervals) alongside the cleaned gVCFs.
+Note: GATK can fail to merge gvcfs if your genomes have very large indels. In this case, please run `dropSV.sh` first to remove large indels. Run `./dropSV.sh -h` for options. This also writes `<prefix>.dropped_indels.bed` (full-span intervals) alongside each cleaned gVCF.
 
 ## 2 GVCF parsing
 ### 2A Clean gvcf 
@@ -63,9 +63,9 @@ In this case, you will need to run `genotype_format4singer.py` on your `.clean` 
 `.clean` will be the SNP data you give to SINGER. 
 You will also need a `.bed` format file of bp that are masked. 
 Usually these are everything in your `.filtered` file plus any large indels removed by `dropSV.sh` and any missing positions.
-`filt_to_bed.py` will take a vcf and make a bedfile, and will also include `dropped_indels.bed` if it exists (looks in the input directory first, then current working directory) and a missing-bed file (default: `<prefix>.missing.bed`).
+`filt_to_bed.py` takes a gVCF/VCF filename (or its prefix) and builds a merged mask from `<prefix>.filtered`, `<prefix>.missing.bed`, and `<prefix>.dropped_indels.bed`. It also checks that filtered bed bp + `.inv` bp + `.clean` bp equals the chromosome length inferred from the gVCF header (or last bp if no header length).
 
-Run using: `python3 filt_to_bed.py <vcf file of filtered snps> [--dropped-bed /path/to/dropped_indels.bed] [--missing-bed /path/to/<prefix>.missing.bed] [--no-merge]`. 
+Run using: `python3 filt_to_bed.py /path/to/<prefix>.gvcf[.gz] [--no-merge]`. 
 Using `--no-merge` will result in a bigger bedfile with many small, contiguous regions and is not recommended.
 
 ### 2C validate

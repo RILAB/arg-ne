@@ -83,6 +83,7 @@ awk 'BEGIN{OFS="\t"} {pos=$3; r=$5; a=$6; start=pos-1; if(r>a){end=start+r}else{
 
 for gvcf in $SRC/*.gvcf.gz; do
     base=$(basename "$gvcf")
+    prefix="${base%.gvcf.gz}"
     echo "Processing $base"
     if grep -qx "$gvcf" need_filter.txt; then
 		lines_before=$(zgrep -cv "^#" "$gvcf")
@@ -91,10 +92,17 @@ for gvcf in $SRC/*.gvcf.gz; do
         tabix -p vcf "$base"
         lines_after=$(zgrep -cv "^#" "$base")
         echo "  before: $lines_before, after: $lines_after, removed: $((lines_before - lines_after))"
+
+        # Write per-gVCF dropped indels BED using the filt_to_bed prefix convention.
+        awk -v f="$gvcf" 'BEGIN{OFS="\t"} $1==f {pos=$3; r=$5; a=$6; start=pos-1; if(r>a){end=start+r}else{end=pos} print $2, start, end}' super_indels.txt \
+          | sort -k1,1 -k2,2n -k3,3n \
+          | awk 'BEGIN{OFS="\t"} NR==1{c=$1;cs=$2;ce=$3;next} {if($1==c && $2<=ce){if($3>ce)ce=$3}else{print c,cs,ce;c=$1;cs=$2;ce=$3}} END{if(NR>0)print c,cs,ce}' \
+          > "${prefix}.dropped_indels.bed"
     else
         cp "$gvcf" .		
 		    cp "$gvcf.tbi" .
         echo "  no large indels found, file copied without changes."
+        : > "${prefix}.dropped_indels.bed"
     fi
 done
 
