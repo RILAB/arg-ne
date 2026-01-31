@@ -1,6 +1,6 @@
 ## Workflow Overview
 
-<img src="https://github.com/RILAB/arg-ne/blob/jri_test/pipeline_flow.png" alt="drawing" width="500"/>
+<!-- pipeline figure removed -->
 
 ## 1 Assemble a gvcf
 

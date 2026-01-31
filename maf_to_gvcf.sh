@@ -38,7 +38,10 @@ SAMPLE_SUFFIX="_anchorwave"
 if [ -f "$MAF_DIR/reference.fa" ]; then
   REF_FASTA="$MAF_DIR/reference.fa"
 else
-  mapfile -t REF_CANDIDATES < <(find "$MAF_DIR" -maxdepth 1 -type f \\( -name "*.fa" -o -name "*.fasta" \\) | sort)
+  REF_CANDIDATES=()
+  while IFS= read -r line; do
+    REF_CANDIDATES+=("$line")
+  done < <(find "$MAF_DIR" -maxdepth 1 -type f \( -name "*.fa" -o -name "*.fasta" \) | sort)
   if [ "${#REF_CANDIDATES[@]}" -ne 1 ]; then
     echo "ERROR: expected a single reference FASTA in $MAF_DIR (or reference.fa)."
     exit 1
@@ -46,7 +49,10 @@ else
   REF_FASTA="${REF_CANDIDATES[0]}"
 fi
 
-mapfile -t MAF_FILES < <(find "$MAF_DIR" -maxdepth 1 -type f -name "*.maf" | sort)
+MAF_FILES=()
+while IFS= read -r line; do
+  MAF_FILES+=("$line")
+done < <(find "$MAF_DIR" -maxdepth 1 -type f -name "*.maf" | sort)
 if [ "${#MAF_FILES[@]}" -eq 0 ]; then
   echo "ERROR: no .maf files found in $MAF_DIR"
   exit 1
