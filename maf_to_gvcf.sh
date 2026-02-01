@@ -2,7 +2,7 @@
 #SBATCH --job-name=maf_to_gvcf
 #SBATCH --array=0-0
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=100G
+#SBATCH --mem=256G
 #SBATCH --time=24:00:00
 #SBATCH --output=logs/%x_%A_%a.out
 #SBATCH --error=logs/%x_%A_%a.err
@@ -11,17 +11,21 @@ set -euo pipefail
 
 MAF_DIR=""
 OUT_DIR=""
+ACCOUNT=""
+PARTITION=""
 
-while getopts "m:o:" opt; do
+while getopts "m:o:A:P:" opt; do
   case "$opt" in
     m) MAF_DIR="$OPTARG" ;;
     o) OUT_DIR="$OPTARG" ;;
+    A) ACCOUNT="$OPTARG" ;;
+    P) PARTITION="$OPTARG" ;;
     *) ;;
   esac
 done
 
 if [ -z "$MAF_DIR" ] || [ -z "$OUT_DIR" ]; then
-  echo "Usage: $0 -m <maf_dir> -o <out_dir>"
+  echo "Usage: $0 -m <maf_dir> -o <out_dir> [-A <account>] [-P <partition>]"
   exit 1
 fi
 
@@ -71,7 +75,21 @@ if [ -z "${SLURM_ARRAY_TASK_ID:-}" ]; then
   N="${#MAF_FILES[@]}"
   ARRAY="0-$((N-1))%4"
   echo "Submitting SLURM array with $N tasks (max 4 running at a time): $ARRAY"
-  sbatch --array="${ARRAY}" "$0" -m "$MAF_DIR" -d "$OUT_DIR"
+  SBATCH_ARGS=(--array="${ARRAY}")
+  if [ -n "$ACCOUNT" ]; then
+    SBATCH_ARGS+=(--account "$ACCOUNT")
+  fi
+  if [ -n "$PARTITION" ]; then
+    SBATCH_ARGS+=(--partition "$PARTITION")
+  fi
+  SCRIPT_ARGS=(-m "$MAF_DIR" -o "$OUT_DIR")
+  if [ -n "$ACCOUNT" ]; then
+    SCRIPT_ARGS+=(-A "$ACCOUNT")
+  fi
+  if [ -n "$PARTITION" ]; then
+    SCRIPT_ARGS+=(-P "$PARTITION")
+  fi
+  sbatch "${SBATCH_ARGS[@]}" "$0" "${SCRIPT_ARGS[@]}"
   exit 0
 fi
 
@@ -86,7 +104,7 @@ GVCF_OUT="${OUT_DIR}/${BASE}To${REF_BASE}.gvcf"
 LOG_OUT="${LOG_DIR}/${BASE}_outputMafToGVCF.txt"
 
 # Run tassel MAF→GVCF for this array shard.
-"$TASSEL_DIR/run_pipeline.pl" -Xmx100G -debug \
+"$TASSEL_DIR/run_pipeline.pl" -Xmx230G -debug \
   -MAFToGVCFPlugin \
   -referenceFasta "$REF_FASTA" \
   -mafFile "$MAF_FILE" \
