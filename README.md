@@ -1,6 +1,6 @@
 ## Workflow Overview
 
-<!-- pipeline figure removed -->
+This workflow documents taking `.maf` files of assemblies aligned to a reference, creating a `.gvcf`, filtering, and then estimating an ARG. It assumes this is done one chromosome at a time.
 
 ## 1 Assemble a gvcf
 
@@ -26,7 +26,7 @@ Submit with: `sbatch gatk_merge_gvcf.sh -g /path/to/gvcf_dir -r /path/to/referen
 
 ## 2 GVCF parsing
 ### 2A Clean gvcf 
-We assume your gvcf is formatted like the [example file](https://github.com/RILAB/arg-ne/blob/main/test.vcf.gz) and is for a single chromosome. 
+ 
 Please split any multi-chromosome gvcfs into individual chromosomes before continuing.
 The script can read both gzipped and unzipped vcfs. 
 
