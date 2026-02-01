@@ -1,8 +1,3 @@
-test.clean
-test.filtered
-test.filtered.bed
-test.inv
-test.clean.gz
-test.filtered.gz
-test.filtered.bed
-test.inv.gz
+logs/*
+testing/*
+test_out/*
