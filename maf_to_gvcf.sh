@@ -9,7 +9,14 @@
 
 set -euo pipefail
 
+# Verify modules system exists (cluster dependency).
+if ! command -v module >/dev/null 2>&1; then
+  echo "ERROR: environment modules not available (module command not found)."
+  exit 1
+fi
 
+# Capture loaded module versions in SLURM stdout.
+module list || true
 
 MAF_DIR=""
 OUT_DIR=""
@@ -27,13 +34,19 @@ if [ -z "$MAF_DIR" ] || [ -z "$OUT_DIR" ]; then
   exit 1
 fi
 
-# Logs go next to this script (repo root expected).
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LOG_DIR="$SCRIPT_DIR/logs"
-mkdir -p "$OUT_DIR" "$LOG_DIR"
+# Determine repository root: prefer the SLURM submit directory when available.
+# When SLURM runs a job, the job script may be executed from a spool directory
+# where the user cannot create new directories. Use `SLURM_SUBMIT_DIR` so
+# logs are created next to the repository (the submission location).
+if [ -n "${SLURM_SUBMIT_DIR:-}" ]; then
+  REPO_ROOT="$SLURM_SUBMIT_DIR"
+else
+  REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
+fi
 
-REPO_ROOT="$SCRIPT_DIR"
 TASSEL_DIR="$REPO_ROOT/tassel-5-standalone"
+LOG_DIR="$REPO_ROOT/logs"
+mkdir -p "$OUT_DIR" "$LOG_DIR"
 FILL_GAPS="false"
 SAMPLE_SUFFIX="_anchorwave"
 
