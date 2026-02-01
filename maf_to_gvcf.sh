@@ -9,14 +9,7 @@
 
 set -euo pipefail
 
-# Verify modules system exists (cluster dependency).
-if ! command -v module >/dev/null 2>&1; then
-  echo "ERROR: environment modules not available (module command not found)."
-  exit 1
-fi
 
-# Capture loaded module versions in SLURM stdout.
-module list || true
 
 MAF_DIR=""
 OUT_DIR=""
