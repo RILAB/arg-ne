@@ -18,11 +18,6 @@ usage() {
   exit 1
 }
 
-if ! command -v module >/dev/null 2>&1; then
-  echo "ERROR: environment modules not available (module command not found)."
-  exit 1
-fi
-
 LOG_DIR="${SLURM_SUBMIT_DIR:-.}/logs"
 mkdir -p "$LOG_DIR"
 
