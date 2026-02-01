@@ -18,7 +18,7 @@ You can also run `maf_to_gvcf.sh -m /path/to/maf_dir -o /path/to/out_dir [-A <ac
 Logs are written to `logs/` alongside the SLURM script.
 
 ### 1C Make joint gvcf
-To merge per-sample gVCFs after filtering large indels, use `gatk_merge_gvcf.sh`. If any input gVCF contains multiple chromosomes, the script splits it by contig and merges each chromosome separately, producing `combined.<chrom>.gvcf.gz`.
+To merge per-sample gVCFs after filtering large indels, use `gatk_merge_gvcf.sh`. It runs `dropSV.py` first, which writes cleaned gVCFs plus their `.tbi` indexes into `cleangVCF/`, along with `cleangVCF/dropped_indels.bed` (full-span intervals). If any input gVCF contains multiple chromosomes, the script splits it by contig and merges each chromosome separately, producing `combined.<chrom>.gvcf.gz` in the current working directory. It also writes per-contig `genomicsdb_workspace_<chrom>/` workspaces and a temporary `cleangVCF/split_gvcf/` directory of per-contig gVCFs used for the merge.
 It runs `dropSV.py`, bgzip/tabix, and then GATK GenomicsDBImport + GenotypeGVCFs.
 Submit with: `sbatch gatk_merge_gvcf.sh -g /path/to/gvcf_dir -r /path/to/reference.fa [-l interval] [-c max_indel_len]` (default cutoff: 9101264). Run from the repo root so SLURM can write to `logs/`.
 
@@ -28,7 +28,7 @@ Submit with: `sbatch gatk_merge_gvcf.sh -g /path/to/gvcf_dir -r /path/to/referen
 ### 2A Clean gvcf 
  
 Use `split_and_mask.sh` to run `split.py` followed by `filt_to_bed.py` in one SLURM job:
-`sbatch split_and_mask.sh -p /path/to/prefix -d <depth> [--filter-multiallelic] [--no-gzip] [--no-merge]` (run from the repo root so `logs/` is present).
+`sbatch split_and_mask.sh -p /path/to/prefix -d <depth> [--filter-multiallelic] [--no-gzip] [--no-merge]` (run from the repo root so `logs/` is present). Outputs from this step include `<prefix>.inv`, `<prefix>.filtered`, `<prefix>.clean`, `<prefix>.missing.bed`, and the mask bedfile `<prefix>.filtered.bed` (or a larger unmerged bed if `--no-merge` is used).
 Normally you will want to set depth equal to your sample size. 
 In some files, for example, depth is recorded as 30 for each individual, so you should set depth to 30 x sample size.
 If your samples are not inbred, you may need to change this by a factor of two. 
