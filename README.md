@@ -44,8 +44,7 @@ This script writes three files, `.inv`, `.filtered`, and `.clean`. Each includes
 It also writes a `.missing.bed` file (no header) listing bp positions absent from the input VCF (i.e., not covered by invariant END ranges, indel spans, or variable sites), in BED 0-based half-open format.
 File outputs will be large when unzipped, it is recommended to run with `--gzip-output` to automatically zip output files.
 Writes to stderr log of how many bp (expanding `END` segments) were written to each file.
-Your gvcf **must** have invariant sites. If there are no invariant sites, go back to [step 2](https://github.com/RILAB/arg-ne/blob/main/README.md#2-gvcf-parsing
-).
+Your gvcf **must** have invariant sites. If there are no invariant sites, go back to [step 2](https://github.com/rossibarra/jri-arg/blob/main/README.md#2-gvcf-parsing).
 
 ##### `.inv` 
 Contains lines from vcf where:
@@ -76,7 +75,7 @@ Alternatively, you can run these individually.
 
             Run usfilt_to_bed.py using: `python3 filt_to_bed.py /path/to/<prefix>.gvcf[.gz] [--no-merge]`. Output is `<prefix>.filtered.bed`.
 
-### 2C validate
+### 2B validate
 
 As alignment software and GATK versions may produce gvcfs of different formats, you should validate your output makes sense. 
 Some suggestions include:
@@ -89,7 +88,7 @@ Some suggestions include:
 
 Use Nate Pope's [snakemake pipeline](https://github.com/nspope/singer-snakemake/tree/main).
 Using the steps above, there is no need to have a filter file. 
-Use the `.clean` vcf and `.filtered.bed` made in step 2B as the mask bedfile. 
+Use the `.clean` vcf and `.filtered.bed` made above as the mask bedfile. 
 Please make sure your recombination 'hapmap' file extends to the end of the chromosome. 
 
 ## 4 ARG processing and 5 Ne modeling (under construction)
