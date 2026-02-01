@@ -220,6 +220,11 @@ def main() -> None:
         help="Path to the gVCF/VCF (or its prefix) used to derive related files",
     )
     ap.add_argument(
+        "--dropped-bed",
+        default=None,
+        help="Optional path to dropped_indels.bed (overrides the default cleangVCF/dropped_indels.bed).",
+    )
+    ap.add_argument(
         "--no-merge",
         action="store_true",
         help="Do not sort/merge overlapping or adjacent intervals.",
@@ -240,7 +245,7 @@ def main() -> None:
     if os.path.isfile(filtered_gz):
         filtered_path = filtered_gz
     out_path = prefix + ".filtered.bed"
-    dropped_bed = os.path.join(os.path.dirname(prefix), "cleangVCF", "dropped_indels.bed")
+    dropped_bed = args.dropped_bed or os.path.join(os.path.dirname(prefix), "cleangVCF", "dropped_indels.bed")
     missing_bed = prefix + ".missing.bed"
 
     # Collect intervals by chromosome from the filtered VCF and mask BEDs.

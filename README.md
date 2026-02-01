@@ -14,13 +14,13 @@ It expects a reference FASTA located in the same directory as the `.maf` files
 (either `reference.fa` or the only `.fa/.fasta` file in that directory).
 
 Submit with: `sbatch --array=0-<N-1>%4 maf_to_gvcf.sh -m /path/to/maf_dir -d /path/to/out_dir` where `N` is the number of `.maf` files in the directory. The `%4` cap limits to 4 concurrent array tasks.
-You can also run `maf_to_gvcf.sh -m /path/to/maf_dir -d /path/to/out_dir` directly; it will auto-submit an array sized to the number of `.maf` files with the same 4-task cap.
+You can also run `maf_to_gvcf.sh -m /path/to/maf_dir -d /path/to/out_dir` directly; it will auto-submit an array sized to the number of `.maf` files with the same 4-task cap. These scripts should be launched from the repo root so `logs/` exists for SLURM output.
 Logs are written to `logs/` alongside the SLURM script.
 
 ### 1C Make joint gvcf
 To merge per-sample gVCFs after filtering large indels, use `gatk_merge_gvcf.sh`.
 It runs `dropSV.py`, bgzip/tabix, and then GATK GenomicsDBImport + GenotypeGVCFs.
-Submit with: `sbatch gatk_merge_gvcf.sh -g /path/to/gvcf_dir -r /path/to/reference.fa [-l interval] [-c max_indel_len]` (default cutoff: 9101264).
+Submit with: `sbatch gatk_merge_gvcf.sh -g /path/to/gvcf_dir -r /path/to/reference.fa [-l interval] [-c max_indel_len]` (default cutoff: 9101264). Run from the repo root so SLURM can write to `logs/`.
 
       OPTIONAL: `dropSV.py` can be run separately to remove large indels. Run `./dropSV.py -h` for options. This writes       `cleangVCF/dropped_indels.bed` (full-span intervals). 
 
@@ -28,7 +28,7 @@ Submit with: `sbatch gatk_merge_gvcf.sh -g /path/to/gvcf_dir -r /path/to/referen
 ### 2A Clean gvcf 
  
 Use `split_and_mask.sh` to run `split.py` followed by `filt_to_bed.py` in one SLURM job:
-`sbatch split_and_mask.sh -p /path/to/prefix -d <depth> [--filter-multiallelic] [--no-gzip] [--no-merge]`.
+`sbatch split_and_mask.sh -p /path/to/prefix -d <depth> [--filter-multiallelic] [--no-gzip] [--no-merge]` (run from the repo root so `logs/` is present).
 Normally you will want to set depth equal to your sample size. 
 In some files, for example, depth is recorded as 30 for each individual, so you should set depth to 30 x sample size.
 If your samples are not inbred, you may need to change this by a factor of two. 
@@ -66,7 +66,7 @@ Contains lines from vcf where any of the following occur:
 Should contain only biallelic SNPs in vcf passing all checks as well as mutliallelic SNPs with no indels that will be filtered out by SINGER snakemake pipleine later (and used to adjust the mutation rate). 
 **Note:** If you run the script with `--filter-multiallelic` this will send multi-allelic site to the `.filtered` file instead. 
 
-The bash script then takes your `.filtered` file plus any large indels removed by `dropSV.py` and any missing positions identified by `split.py`. `filt_to_bed.py` takes a gVCF/VCF filename (or its prefix) and builds a merged mask from `<prefix>.filtered`, `<prefix>.missing.bed`, and `cleangVCF/dropped_indels.bed`. It exits with an error if required files are missing. It also checks that filtered bed bp + `.inv` bp + `.clean` bp equals the chromosome length inferred from the gVCF header (or last bp if no header length).
+The bash script then takes your `.filtered` file plus any large indels removed by `dropSV.py` and any missing positions identified by `split.py`. `filt_to_bed.py` takes a gVCF/VCF filename (or its prefix) and builds a merged mask from `<prefix>.filtered`, `<prefix>.missing.bed`, and a dropped-indels bedfile. By default it looks for `cleangVCF/dropped_indels.bed` relative to the prefix directory; you can override this with `--dropped-bed /path/to/dropped_indels.bed`. It exits with an error if required files are missing. It also checks that filtered bed bp + `.inv` bp + `.clean` bp equals the chromosome length inferred from the gVCF header (or last bp if no header length).
 
 Using `--no-merge` will result in a bigger bedfile with many small, contiguous regions and is not recommended.
 

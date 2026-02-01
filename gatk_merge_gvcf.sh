@@ -119,7 +119,7 @@ if [ "${#GVCF_FILES[@]}" -eq 0 ]; then
 fi
 
 WORKSPACE="genomicsdb_workspace"
-OUT_GVCF="${PWD}/combined.g.vcf.gz"
+OUT_GVCF="${PWD}/combined.gvcf.gz"
 
 GVCF_ARGS=()
 for f in "${GVCF_FILES[@]}"; do
