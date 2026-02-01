@@ -12,16 +12,16 @@ set -euo pipefail
 MAF_DIR=""
 OUT_DIR=""
 
-while getopts "m:d:" opt; do
+while getopts "m:o:" opt; do
   case "$opt" in
     m) MAF_DIR="$OPTARG" ;;
-    d) OUT_DIR="$OPTARG" ;;
+    o) OUT_DIR="$OPTARG" ;;
     *) ;;
   esac
 done
 
 if [ -z "$MAF_DIR" ] || [ -z "$OUT_DIR" ]; then
-  echo "Usage: $0 -m <maf_dir> -d <out_dir>"
+  echo "Usage: $0 -m <maf_dir> -o <out_dir>"
   exit 1
 fi
 

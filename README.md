@@ -13,8 +13,8 @@ Use `maf_to_gvcf.sh` to run tassel on a directory of `.maf` files.
 It expects a reference FASTA located in the same directory as the `.maf` files
 (either `reference.fa` or the only `.fa/.fasta` file in that directory).
 
-Submit with: `sbatch --array=0-<N-1>%4 maf_to_gvcf.sh -m /path/to/maf_dir -d /path/to/out_dir` where `N` is the number of `.maf` files in the directory. The `%4` cap limits to 4 concurrent array tasks.
-You can also run `maf_to_gvcf.sh -m /path/to/maf_dir -d /path/to/out_dir` directly; it will auto-submit an array sized to the number of `.maf` files with the same 4-task cap. These scripts should be launched from the repo root so `logs/` exists for SLURM output.
+Submit with: `sbatch --array=0-<N-1>%4 maf_to_gvcf.sh -m /path/to/maf_dir -o /path/to/out_dir` where `N` is the number of `.maf` files in the directory. The `%4` cap limits to 4 concurrent array tasks.
+You can also run `maf_to_gvcf.sh -m /path/to/maf_dir -o /path/to/out_dir` directly; it will auto-submit an array sized to the number of `.maf` files with the same 4-task cap. These scripts should be launched from the repo root so `logs/` exists for SLURM output.
 Logs are written to `logs/` alongside the SLURM script.
 
 ### 1C Make joint gvcf
