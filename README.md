@@ -27,17 +27,12 @@ Submit with: `sbatch gatk_merge_gvcf.sh -g /path/to/gvcf_dir -r /path/to/referen
 ## 2 GVCF parsing
 ### 2A Clean gvcf 
  
-Please split any multi-chromosome gvcfs into individual chromosomes before continuing.
-The script can read both gzipped and unzipped vcfs. 
-
-Run `split.py` using `python3 split.py --depth=<depth> <filename.vcf>`. 
+Use `split_and_mask.sh` to run `split.py` followed by `filt_to_bed.py` in one SLURM job:
+`sbatch split_and_mask.sh -p /path/to/prefix -d <depth> [--filter-multiallelic] [--no-gzip] [--no-merge]`.
 Normally you will want to set depth equal to your sample size. 
 In some files, for example, depth is recorded as 30 for each individual, so you should set depth to 30 x sample size.
 If your samples are not inbred, you may need to change this by a factor of two. 
 In addition, if you run the script with `--filter-multiallelic`, this will send multi-allelic sites to the `.filtered` file described below. 
-
-Alternatively, you can use `split_and_mask.sh` to run `split.py` followed by `filt_to_bed.py` in one SLURM job:
-`sbatch split_and_mask.sh -p /path/to/prefix -d <depth> [--filter-multiallelic] [--no-gzip] [--no-merge]`.
 
 VCFs from anchorwave often have genotypes using depth like:
 
@@ -71,15 +66,15 @@ Contains lines from vcf where any of the following occur:
 Should contain only biallelic SNPs in vcf passing all checks as well as mutliallelic SNPs with no indels that will be filtered out by SINGER snakemake pipleine later (and used to adjust the mutation rate). 
 **Note:** If you run the script with `--filter-multiallelic` this will send multi-allelic site to the `.filtered` file instead. 
 
-### 2B Prep for SINGER
+The bash script then takes your `.filtered` file plus any large indels removed by `dropSV.py` and any missing positions identified by `split.py`. `filt_to_bed.py` takes a gVCF/VCF filename (or its prefix) and builds a merged mask from `<prefix>.filtered`, `<prefix>.missing.bed`, and `cleangVCF/dropped_indels.bed`. It exits with an error if required files are missing. It also checks that filtered bed bp + `.inv` bp + `.clean` bp equals the chromosome length inferred from the gVCF header (or last bp if no header length).
 
-`.clean` will be the SNP data you give to SINGER. 
-You will also need a `.bed` format file of bp that are masked. 
-Usually these are everything in your `.filtered` file plus any large indels removed by `dropSV.py` and any missing positions.
-`filt_to_bed.py` takes a gVCF/VCF filename (or its prefix) and builds a merged mask from `<prefix>.filtered`, `<prefix>.missing.bed`, and `cleangVCF/dropped_indels.bed`. It exits with an error if required files are missing. It also checks that filtered bed bp + `.inv` bp + `.clean` bp equals the chromosome length inferred from the gVCF header (or last bp if no header length).
-
-Run using: `python3 filt_to_bed.py /path/to/<prefix>.gvcf[.gz] [--no-merge]`. Output is `<prefix>.filtered.bed`.
 Using `--no-merge` will result in a bigger bedfile with many small, contiguous regions and is not recommended.
+
+Alternatively, you can run these individually.
+
+            Run `split.py` using `python3 split.py --depth=<depth> <filename.vcf>`. 
+
+            Run usfilt_to_bed.py using: `python3 filt_to_bed.py /path/to/<prefix>.gvcf[.gz] [--no-merge]`. Output is `<prefix>.filtered.bed`.
 
 ### 2C validate
 
@@ -94,7 +89,7 @@ Some suggestions include:
 
 Use Nate Pope's [snakemake pipeline](https://github.com/nspope/singer-snakemake/tree/main).
 Using the steps above, there is no need to have a filter file. 
-Use the bedfile made in step 2B as the mask bedfile. 
+Use the `.clean` vcf and `.filtered.bed` made in step 2B as the mask bedfile. 
 Please make sure your recombination 'hapmap' file extends to the end of the chromosome. 
 
 ## 4 ARG processing and 5 Ne modeling (under construction)
