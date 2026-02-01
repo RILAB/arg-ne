@@ -30,7 +30,14 @@ for init in /etc/profile.d/modules.sh /usr/share/Modules/init/bash /etc/profile;
 done
 
 module load picard || { echo "ERROR: failed to load picard module"; exit 1; }
-module load tabix || { echo "ERROR: failed to load tabix module"; exit 1; }
+if module load tabix; then
+  : # tabix module loaded
+elif module load htslib; then
+  : # tabix provided by htslib
+else
+  echo "ERROR: failed to load tabix/htslib module"
+  exit 1
+fi
 module load gatk || { echo "ERROR: failed to load gatk module"; exit 1; }
 
 echo "Tool versions:"
