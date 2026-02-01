@@ -20,7 +20,7 @@ Logs are written to `logs/` alongside the SLURM script.
 ### 1C Make joint gvcf
 To merge per-sample gVCFs after filtering large indels, use `gatk_merge_gvcf.sh`. It runs `dropSV.py` first, which writes cleaned gVCFs plus their `.tbi` indexes into `cleangVCF/`, along with `cleangVCF/dropped_indels.bed` (full-span intervals). If any input gVCF contains multiple chromosomes, the script splits it by contig and merges each chromosome separately, producing `combined.<chrom>.gvcf.gz` in the current working directory. It also writes per-contig `genomicsdb_workspace_<chrom>/` workspaces and a temporary `cleangVCF/split_gvcf/` directory of per-contig gVCFs used for the merge.
 It runs `dropSV.py`, bgzip/tabix, and then GATK GenomicsDBImport + GenotypeGVCFs.
-Submit with: `sbatch gatk_merge_gvcf.sh -g /path/to/gvcf_dir -r /path/to/reference.fa [-l interval] [-c max_indel_len]` (default cutoff: 9101264). Run from the repo root so SLURM can write to `logs/`.
+Submit with: `sbatch gatk_merge_gvcf.sh -g /path/to/gvcf_dir -r /path/to/reference.fa [-l interval] [-c max_indel_len]` (default cutoff: 9101264). The `-c` cutoff is the minimum indel length removed by `dropSV.py`. The optional `-l` interval (e.g., `chr1` or `chr1:1-1000000`) is passed to GATK as `-L`, restricting GenomicsDBImport/GenotypeGVCFs to that contig/region; when provided, only that contig is merged. Run from the repo root so SLURM can write to `logs/`.
 
       OPTIONAL: `dropSV.py` can be run separately to remove large indels. Run `./dropSV.py -h` for options. This writes       `cleangVCF/dropped_indels.bed` (full-span intervals). 
 
