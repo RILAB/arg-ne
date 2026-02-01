@@ -8,6 +8,7 @@
 
 set -euo pipefail
 
+# Validate environment modules and load required tools.
 usage() {
   echo "Usage: $0 -g <gvcf_dir> -r <reference_fasta> [-l interval] [-c cutoff]"
   echo "  -g  Directory containing per-sample .gvcf.gz files"
@@ -34,6 +35,7 @@ picard --version || true
 tabix --version || true
 gatk --version || true
 
+# Parse inputs for gVCF dir, reference, optional interval, optional cutoff.
 GVCF_DIR=""
 REF_FASTA=""
 INTERVAL=""
@@ -66,6 +68,7 @@ if [ ! -f "$REF_FASTA" ]; then
   exit 1
 fi
 
+# Required external tools (after module load).
 command -v samtools >/dev/null 2>&1 || { echo "ERROR: samtools not found in PATH"; exit 1; }
 command -v gatk >/dev/null 2>&1 || { echo "ERROR: gatk not found in PATH"; exit 1; }
 command -v bgzip >/dev/null 2>&1 || { echo "ERROR: bgzip not found in PATH"; exit 1; }
@@ -82,7 +85,7 @@ if [ ! -f "$DICT" ]; then
   picard CreateSequenceDictionary R="$REF_FASTA" O="$DICT"
 fi
 
-# Run dropSV.py on the input directory.
+# Run dropSV.py on the input directory (optional cutoff override).
 if [ -n "$DROP_CUTOFF" ]; then
   python3 "$DROP_SV" -d "$GVCF_DIR" -c "$DROP_CUTOFF"
 else
@@ -136,6 +139,7 @@ if [ -n "$INTERVAL" ]; then
   GENO_CMD+=( -L "$INTERVAL" )
 fi
 
+# Build GenomicsDB and emit merged gVCF in the current directory.
 "${IMPORT_CMD[@]}"
 "${GENO_CMD[@]}"
 

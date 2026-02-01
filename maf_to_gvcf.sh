@@ -9,11 +9,13 @@
 
 set -euo pipefail
 
+# Verify modules system exists (cluster dependency).
 if ! command -v module >/dev/null 2>&1; then
   echo "ERROR: environment modules not available (module command not found)."
   exit 1
 fi
 
+# Capture loaded module versions in SLURM stdout.
 module list || true
 
 MAF_DIR=""
@@ -32,6 +34,7 @@ if [ -z "$MAF_DIR" ] || [ -z "$OUT_DIR" ]; then
   exit 1
 fi
 
+# Logs go next to this script (repo root expected).
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG_DIR="$SCRIPT_DIR/logs"
 mkdir -p "$OUT_DIR" "$LOG_DIR"
@@ -56,6 +59,7 @@ else
   REF_FASTA="${REF_CANDIDATES[0]}"
 fi
 
+# Build list of MAFs for the array.
 MAF_FILES=()
 while IFS= read -r line; do
   MAF_FILES+=("$line")
@@ -84,6 +88,7 @@ REF_BASE="${REF_BASE%.fasta}"
 GVCF_OUT="${OUT_DIR}/${BASE}To${REF_BASE}.gvcf"
 LOG_OUT="${LOG_DIR}/${BASE}_outputMafToGVCF.txt"
 
+# Run tassel MAF→GVCF for this array shard.
 "$TASSEL_DIR/run_pipeline.pl" -Xmx100G -debug \
   -MAFToGVCFPlugin \
   -referenceFasta "$REF_FASTA" \

@@ -8,6 +8,7 @@
 
 set -euo pipefail
 
+# One job: split gVCF into .inv/.filtered/.clean and build mask bed.
 usage() {
   echo "Usage: $0 -p <prefix> -d <depth> [--filter-multiallelic] [--no-gzip] [--no-merge]"
   echo "  -p  Prefix for .inv/.filtered/.clean outputs"
@@ -39,6 +40,7 @@ if [ -z "$PREFIX" ] || [ -z "$DEPTH" ]; then
   usage
 fi
 
+# Logs go to submission directory logs/.
 LOG_DIR="${SLURM_SUBMIT_DIR:-.}/logs"
 mkdir -p "$LOG_DIR"
 
@@ -56,6 +58,7 @@ if [ -z "$INPUT_VCF" ]; then
   exit 1
 fi
 
+# Build split.py args based on requested options.
 SPLIT_ARGS=(python3 split.py --depth="$DEPTH")
 if [ "$FILTER_MULTIALLELIC" = "true" ]; then
   SPLIT_ARGS+=(--filter-multiallelic)
@@ -65,8 +68,10 @@ if [ "$NO_GZIP" != "true" ]; then
 fi
 SPLIT_ARGS+=("$INPUT_VCF")
 
+# Run split.py to produce .inv/.filtered/.clean/.missing.bed.
 "${SPLIT_ARGS[@]}"
 
+# Build mask bed from filtered + missing + dropped indels.
 FILT_ARGS=(python3 filt_to_bed.py "$PREFIX")
 if [ "$NO_MERGE" = "true" ]; then
   FILT_ARGS+=(--no-merge)
