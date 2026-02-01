@@ -58,7 +58,12 @@ if [ -z "$GVCF_DIR" ] || [ -z "$REF_FASTA" ]; then
   usage
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Prefer the submit directory so we can find repo files even when SLURM runs from a spool dir.
+if [ -n "${SLURM_SUBMIT_DIR:-}" ]; then
+  SCRIPT_DIR="$SLURM_SUBMIT_DIR"
+else
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+fi
 DROP_SV="${SCRIPT_DIR}/dropSV.py"
 
 if [ ! -x "$DROP_SV" ]; then

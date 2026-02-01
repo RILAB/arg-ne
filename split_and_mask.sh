@@ -44,6 +44,13 @@ fi
 LOG_DIR="${SLURM_SUBMIT_DIR:-.}/logs"
 mkdir -p "$LOG_DIR"
 
+# Resolve script directory so we can find helper scripts when SLURM runs from a spool dir.
+if [ -n "${SLURM_SUBMIT_DIR:-}" ]; then
+  SCRIPT_DIR="$SLURM_SUBMIT_DIR"
+else
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+fi
+
 # Find input VCF/gVCF from prefix.
 INPUT_VCF=""
 for ext in ".vcf.gz" ".vcf" ".gvcf.gz" ".gvcf"; do
@@ -59,7 +66,7 @@ if [ -z "$INPUT_VCF" ]; then
 fi
 
 # Build split.py args based on requested options.
-SPLIT_ARGS=(python3 split.py --depth="$DEPTH")
+SPLIT_ARGS=(python3 "${SCRIPT_DIR}/split.py" --depth="$DEPTH")
 if [ "$FILTER_MULTIALLELIC" = "true" ]; then
   SPLIT_ARGS+=(--filter-multiallelic)
 fi
@@ -72,7 +79,7 @@ SPLIT_ARGS+=("$INPUT_VCF")
 "${SPLIT_ARGS[@]}"
 
 # Build mask bed from filtered + missing + dropped indels.
-FILT_ARGS=(python3 filt_to_bed.py "$PREFIX")
+FILT_ARGS=(python3 "${SCRIPT_DIR}/filt_to_bed.py" "$PREFIX")
 if [ "$NO_MERGE" = "true" ]; then
   FILT_ARGS+=(--no-merge)
 fi
