@@ -34,12 +34,12 @@ module load picard || { echo "ERROR: failed to load picard module"; exit 1; }
 if module load tabix; then
   : # tabix module loaded
 fi
-if ! command -v tabix >/dev/null 2>&1; then
+if ! type -P tabix >/dev/null 2>&1; then
   if module load htslib; then
     : # tabix provided by htslib
   fi
 fi
-if ! command -v tabix >/dev/null 2>&1; then
+if ! type -P tabix >/dev/null 2>&1; then
   echo "ERROR: tabix not found in PATH after module load"
   exit 1
 fi
@@ -47,7 +47,7 @@ fi
 if module load samtools; then
   : # samtools module loaded
 fi
-if ! command -v samtools >/dev/null 2>&1; then
+if ! type -P samtools >/dev/null 2>&1; then
   echo "ERROR: samtools not found in PATH after module load"
   exit 1
 fi
