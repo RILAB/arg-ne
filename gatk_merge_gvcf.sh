@@ -21,38 +21,9 @@ usage() {
 LOG_DIR="${SLURM_SUBMIT_DIR:-.}/logs"
 mkdir -p "$LOG_DIR"
 
-for init in /etc/profile.d/modules.sh /usr/share/Modules/init/bash /etc/profile; do
-  if [ -f "$init" ]; then
-    # shellcheck source=/dev/null
-    source "$init"
-    break
-  fi
-done
+module load conda || { echo "ERROR: failed to load conda module"; exit 1; }
+conda activate argtools || { echo "ERROR: failed to activate conda env: argtools"; exit 1; }
 
-module load picard || { echo "ERROR: failed to load picard module"; exit 1; }
-
-if module load tabix; then
-  : # tabix module loaded
-fi
-if ! type -P tabix >/dev/null 2>&1; then
-  if module load htslib; then
-    : # tabix provided by htslib
-  fi
-fi
-if ! type -P tabix >/dev/null 2>&1; then
-  echo "ERROR: tabix not found in PATH after module load"
-  exit 1
-fi
-
-if module load samtools; then
-  : # samtools module loaded
-fi
-if ! type -P samtools >/dev/null 2>&1; then
-  echo "ERROR: samtools not found in PATH after module load"
-  exit 1
-fi
-
-module load gatk || { echo "ERROR: failed to load gatk module"; exit 1; }
 
 echo "Tool versions:"
 picard MarkDuplicates --version 2>&1 | head -n 1 || true
@@ -97,12 +68,13 @@ if [ ! -f "$REF_FASTA" ]; then
   exit 1
 fi
 
-# Required external tools (after module load).
-command -v samtools >/dev/null 2>&1 || { echo "ERROR: samtools not found in PATH"; exit 1; }
-command -v gatk >/dev/null 2>&1 || { echo "ERROR: gatk not found in PATH"; exit 1; }
-command -v bgzip >/dev/null 2>&1 || { echo "ERROR: bgzip not found in PATH"; exit 1; }
-command -v tabix >/dev/null 2>&1 || { echo "ERROR: tabix not found in PATH"; exit 1; }
-command -v picard >/dev/null 2>&1 || { echo "ERROR: picard not found in PATH"; exit 1; }
+# Required external tools (after conda activation).
+# command -v samtools >/dev/null 2>&1 || { echo "ERROR: samtools not found in PATH"; exit 1; }
+# command -v gatk >/dev/null 2>&1 || { echo "ERROR: gatk not found in PATH"; exit 1; }
+# command -v bgzip >/dev/null 2>&1 || { echo "ERROR: bgzip not found in PATH"; exit 1; }
+# command -v tabix >/dev/null 2>&1 || { echo "ERROR: tabix not found in PATH"; exit 1; }
+# command -v picard >/dev/null 2>&1 || { echo "ERROR: picard not found in PATH"; exit 1; }
+
 
 # Ensure reference index and dictionary exist.
 if [ ! -f "${REF_FASTA}.fai" ]; then
@@ -113,6 +85,7 @@ DICT="${REF_FASTA%.*}.dict"
 if [ ! -f "$DICT" ]; then
   picard CreateSequenceDictionary R="$REF_FASTA" O="$DICT"
 fi
+
 
 # Run dropSV.py on the input directory (optional cutoff override).
 if [ -n "$DROP_CUTOFF" ]; then
