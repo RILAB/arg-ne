@@ -64,9 +64,9 @@ fi
 MAF_FILES=()
 while IFS= read -r line; do
   MAF_FILES+=("$line")
-done < <(find "$MAF_DIR" -maxdepth 1 -type f -name "*.maf" | sort)
+done < <(find "$MAF_DIR" -maxdepth 1 -type f \( -name "*.maf" -o -name "*.maf.gz" \) | sort)
 if [ "${#MAF_FILES[@]}" -eq 0 ]; then
-  echo "ERROR: no .maf files found in $MAF_DIR"
+  echo "ERROR: no .maf or .maf.gz files found in $MAF_DIR"
   exit 1
 fi
 
@@ -94,7 +94,9 @@ if [ -z "${SLURM_ARRAY_TASK_ID:-}" ]; then
 fi
 
 MAF_FILE="${MAF_FILES[$SLURM_ARRAY_TASK_ID]}"
-BASE="$(basename "$MAF_FILE" .maf)"
+BASE="$(basename "$MAF_FILE")"
+BASE="${BASE%.maf.gz}"
+BASE="${BASE%.maf}"
 SAMPLE_NAME="${BASE}${SAMPLE_SUFFIX}"
 REF_BASE="$(basename "$REF_FASTA")"
 REF_BASE="${REF_BASE%.fa}"
@@ -103,12 +105,24 @@ REF_BASE="${REF_BASE%.fasta}"
 GVCF_OUT="${OUT_DIR}/${BASE}To${REF_BASE}.gvcf"
 LOG_OUT="${LOG_DIR}/${BASE}_outputMafToGVCF.txt"
 
+TMP_MAF=""
+MAF_INPUT="$MAF_FILE"
+if [[ "$MAF_FILE" == *.gz ]]; then
+  TMP_MAF="$(mktemp "${TMPDIR:-/tmp}/maf_to_gvcf.XXXXXX.maf")"
+  gunzip -c "$MAF_FILE" > "$TMP_MAF"
+  MAF_INPUT="$TMP_MAF"
+fi
+
 # Run tassel MAF→GVCF for this array shard.
 "$TASSEL_DIR/run_pipeline.pl" -Xmx230G -debug \
   -MAFToGVCFPlugin \
   -referenceFasta "$REF_FASTA" \
-  -mafFile "$MAF_FILE" \
+  -mafFile "$MAF_INPUT" \
   -sampleName "$SAMPLE_NAME" \
   -gvcfOutput "$GVCF_OUT" \
   -fillGaps "$FILL_GAPS" \
   > "$LOG_OUT"
+
+if [ -n "$TMP_MAF" ] && [ -f "$TMP_MAF" ]; then
+  rm -f "$TMP_MAF"
+fi
