@@ -86,6 +86,11 @@ def _contig_map():
     maf_contigs = _read_maf_contigs()
     fasta_contigs = _read_fasta_contigs(ORIG_REF_FASTA)
     if not maf_contigs or not fasta_contigs:
+        print(
+            "WARNING: MAF and FASTA contig sets differ. "
+            "Only chr/Chr prefixes, case differences, and leading zeros are auto-resolved.",
+            file=os.sys.stderr,
+        )
         return False, {}
 
     maf_norm = {}
@@ -96,12 +101,14 @@ def _contig_map():
     for name in fasta_contigs:
         fasta_norm.setdefault(_normalize_contig(name), []).append(name)
 
-    if set(maf_norm.keys()) != set(fasta_norm.keys()):
+    missing = sorted(set(maf_norm.keys()) - set(fasta_norm.keys()))
+    if missing:
         print(
-            "WARNING: MAF and FASTA contig sets differ. "
-            "Only chr/Chr prefixes, case differences, and leading zeros are auto-resolved.",
+            "WARNING: MAF contigs not found in reference after normalization; "
+            "cannot auto-rename reference to match MAF contigs.",
             file=os.sys.stderr,
         )
+        print(f"WARNING: Missing contig examples: {missing[:5]}", file=os.sys.stderr)
         return False, {}
 
     mapping = {}
