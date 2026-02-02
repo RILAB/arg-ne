@@ -84,8 +84,4 @@ By default the workflow uses these locations (override in `config.yaml`):
 
 ## Downstream ARG estimation
 
-Use Nate Pope's Snakemake pipeline:
-
-- SINGER Snakemake workflow: `https://github.com/nspope/singer-snakemake`
-
-For SINGER, use `combined.<contig>.clean` and `combined.<contig>.filtered.bed` as inputs.
+Use Nate Pope's SINGER Snakemake [pipeline](https://github.com/nspope/singer-snakemake) with `combined.<contig>.clean` and `combined.<contig>.filtered.bed` as inputs.
