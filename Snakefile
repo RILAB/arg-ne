@@ -36,7 +36,7 @@ RENAMED_REF_FASTA = RESULTS_DIR / "refs" / "reference_renamed.fa"
 
 
 def _normalize_contig(name: str) -> str:
-    name = name.strip()
+    name = name.strip().lower()
     name = re.sub(r"^chr", "", name, flags=re.IGNORECASE)
     name = name.lstrip("0")
     return name if name else "0"
@@ -94,7 +94,7 @@ def _contig_map():
     if set(maf_norm.keys()) != set(fasta_norm.keys()):
         print(
             "WARNING: MAF and FASTA contig sets differ. "
-            "Only chr/Chr prefixes and leading zeros are auto-resolved.",
+            "Only chr/Chr prefixes, case differences, and leading zeros are auto-resolved.",
             file=os.sys.stderr,
         )
         return False, {}
