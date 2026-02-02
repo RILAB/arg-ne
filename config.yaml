@@ -37,3 +37,10 @@ fill_gaps: false
 filter_multiallelic: false
 gzip_output: false
 no_merge: false
+
+# Default SLURM resources (used by the provided profile)
+default_threads: 2
+default_mem_mb: 48000
+default_time: "48:00:00"
+slurm_account: jrigrp
+slurm_partition: high

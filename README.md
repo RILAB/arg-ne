@@ -51,6 +51,7 @@ Common options:
 ### Run on SLURM
 
 A default SLURM profile is provided under `profiles/slurm/`. Edit `profiles/slurm/config.yaml` to customize sbatch options if needed.
+Defaults for account/partition and baseline resources are set in `config.yaml` (`slurm_account`, `slurm_partition`, `default_*`).
 
 ```bash
 snakemake --profile profiles/slurm

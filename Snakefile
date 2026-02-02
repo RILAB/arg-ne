@@ -83,6 +83,10 @@ rule all:
 
 rule maf_to_gvcf:
     # Convert each MAF to a gzipped gVCF using TASSEL.
+    threads: 2
+    resources:
+        mem_mb=256000,
+        time="24:00:00"
     input:
         maf=lambda wc: str(MAF_DIR / f"{wc.sample}.maf"),
         ref=str(REF_FASTA),
