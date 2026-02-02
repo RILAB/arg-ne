@@ -1,5 +1,6 @@
 import os
 import re
+import gzip
 from pathlib import Path
 
 from snakemake.io import glob_wildcards
@@ -25,6 +26,8 @@ GZIP_OUTPUT = bool(config.get("gzip_output", False))
 NO_MERGE = bool(config.get("no_merge", False))
 
 REF_BASE = ORIG_REF_FASTA.name
+if REF_BASE.endswith(".gz"):
+    REF_BASE = REF_BASE[: -len(".gz")]
 for ext in (".fa", ".fasta"):
     if REF_BASE.endswith(ext):
         REF_BASE = REF_BASE[: -len(ext)]
@@ -56,10 +59,16 @@ def _read_maf_contigs() -> set[str]:
     return contigs
 
 
+def _open_fasta(path: Path):
+    if path.suffix == ".gz":
+        return gzip.open(path, "rt", encoding="utf-8")
+    return path.open("r", encoding="utf-8")
+
+
 def _read_fasta_contigs(path: Path) -> list[str]:
     contigs = []
     try:
-        with path.open("r", encoding="utf-8") as handle:
+        with _open_fasta(path) as handle:
             for line in handle:
                 if line.startswith(">"):
                     contigs.append(line[1:].strip().split()[0])
@@ -195,7 +204,7 @@ if NEED_RENAME:
 
             out_path = Path(output.ref)
             out_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(input.ref, "r", encoding="utf-8") as fin, open(
+            with _open_fasta(Path(input.ref)) as fin, open(
                 output.ref, "w", encoding="utf-8"
             ) as fout:
                 for line in fin:
@@ -235,23 +244,30 @@ rule summary_report:
         report_path.parent.mkdir(parents=True, exist_ok=True)
 
         jobs = [
-            "maf_to_gvcf",
-            "drop_sv",
-            "split_gvcf_by_contig",
-            "merge_contig",
-            "split_gvcf",
-            "mask_bed",
+            ("maf_to_gvcf", [str(_gvcf_out(base)) for base in GVCF_BASES]),
+            (
+                "drop_sv",
+                [str(GVCF_DIR / "cleangVCF" / f"{base}.gvcf.gz") for base in GVCF_BASES]
+                + [str(GVCF_DIR / "cleangVCF" / "dropped_indels.bed")],
+            ),
+            (
+                "split_gvcf_by_contig",
+                [str(_split_out(base, contig)) for contig in CONTIGS for base in GVCF_BASES],
+            ),
+            ("merge_contig", [str(_combined_out(c)) for c in CONTIGS]),
+            (
+                "split_gvcf",
+                [
+                    str(_split_prefix(c)) + suffix
+                    for c in CONTIGS
+                    for suffix in (".inv", ".filtered", ".clean", ".missing.bed")
+                ],
+            ),
+            ("mask_bed", [str(_split_prefix(c)) + ".filtered.bed" for c in CONTIGS]),
         ]
         if NEED_RENAME:
-            jobs.insert(0, "rename_reference")
-        jobs.insert(0, "index_reference")
-
-        outputs = []
-        for path in input.combined:
-            outputs.append(path)
-        for path in input.beds:
-            outputs.append(path)
-        outputs.append(input.dropped)
+            jobs.insert(0, ("rename_reference", [str(RENAMED_REF_FASTA)]))
+        jobs.insert(0, ("index_reference", [REF_FAI, REF_DICT]))
 
         # Collect warnings from logs and snakemake logs.
         warnings = []
@@ -272,10 +288,16 @@ rule summary_report:
         with report_path.open("w", encoding="utf-8") as handle:
             handle.write("# Workflow summary\n\n")
             handle.write("## Jobs run\n")
-            for job in jobs:
+            for job, outputs in jobs:
                 handle.write(f"- {job}\n")
-            handle.write("\n## Outputs\n")
-            for path in outputs:
+                for path in outputs:
+                    handle.write(f"  - {path}\n")
+            handle.write("\n## Final outputs\n")
+            final_outputs = (
+                [str(GVCF_DIR / "cleangVCF" / f"{base}.gvcf.gz") for base in GVCF_BASES]
+                + [str(_split_prefix(c)) + ".filtered.bed" for c in CONTIGS]
+            )
+            for path in final_outputs:
                 handle.write(f"- {path}\n")
             handle.write("\n## Warnings\n")
             if warnings:
