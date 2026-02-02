@@ -9,4 +9,5 @@ dependencies:
   - bcftools
   - gatk4
   - picard
-  - python=3.9.23
+  - python=3.11
+  - snakemake>=8.0.0
