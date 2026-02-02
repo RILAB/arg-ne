@@ -38,7 +38,13 @@ RENAMED_REF_FASTA = RESULTS_DIR / "refs" / "reference_renamed.fa"
 def _normalize_contig(name: str) -> str:
     name = name.strip().lower()
     name = re.sub(r"^chr", "", name, flags=re.IGNORECASE)
-    name = name.lstrip("0")
+    m = re.match(r"^(.*?)(\d+)$", name)
+    if m:
+        prefix, num = m.groups()
+        num = num.lstrip("0") or "0"
+        name = f"{prefix}{num}"
+    else:
+        name = name.lstrip("0")
     return name if name else "0"
 
 
