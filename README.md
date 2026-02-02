@@ -4,6 +4,14 @@ This workflow documents taking `.maf` files of assemblies aligned to a reference
 
 ## 1 Assemble a gvcf
 
+Before running the scripts, create and activate the conda environment from `argtools.yml` (you may need to `module load conda` first on the cluster):
+
+```bash
+module load conda
+conda env create -f argtools.yml
+conda activate argtools
+```
+
 ### 1A Align genomes to reference
 
 Align each assembly to the reference using [anchorwave](https://github.com/baoxingsong/AnchorWave). This step produces per-sample MAF files and should be done separately by chromosome.
