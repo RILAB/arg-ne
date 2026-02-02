@@ -71,6 +71,7 @@ By default the workflow uses these locations (override in `config.yaml`):
 - `results/split/combined.<contig>.clean` : clean sites
 - `results/split/combined.<contig>.missing.bed` : missing positions
 - `results/split/combined.<contig>.filtered.bed` : merged mask bed
+- `results/summary.md` : markdown summary of jobs run, outputs created, and warnings
   - If `gzip_output: true`, the `.inv`, `.filtered`, `.clean`, and `.missing.bed` files will have a `.gz` suffix.
 
 ## Notes

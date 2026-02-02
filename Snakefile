@@ -181,6 +181,7 @@ rule all:
     input:
         [str(_combined_out(c)) for c in CONTIGS],
         [str(_split_prefix(c)) + ".filtered.bed" for c in CONTIGS],
+        str(RESULTS_DIR / "summary.md"),
 
 if NEED_RENAME:
     rule rename_reference:
@@ -218,6 +219,70 @@ rule index_reference:
         samtools faidx "{input.ref}"
         picard CreateSequenceDictionary R="{input.ref}" O="{output.dict}"
         """
+
+rule summary_report:
+    # Write a markdown summary of jobs, outputs, and warnings.
+    input:
+        combined=[str(_combined_out(c)) for c in CONTIGS],
+        beds=[str(_split_prefix(c)) + ".filtered.bed" for c in CONTIGS],
+        dropped=str(GVCF_DIR / "cleangVCF" / "dropped_indels.bed"),
+    output:
+        report=str(RESULTS_DIR / "summary.md"),
+    run:
+        from pathlib import Path
+
+        report_path = Path(output.report)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+
+        jobs = [
+            "maf_to_gvcf",
+            "drop_sv",
+            "split_gvcf_by_contig",
+            "merge_contig",
+            "split_gvcf",
+            "mask_bed",
+        ]
+        if NEED_RENAME:
+            jobs.insert(0, "rename_reference")
+        jobs.insert(0, "index_reference")
+
+        outputs = []
+        for path in input.combined:
+            outputs.append(path)
+        for path in input.beds:
+            outputs.append(path)
+        outputs.append(input.dropped)
+
+        # Collect warnings from logs and snakemake logs.
+        warnings = []
+        log_paths = []
+        log_paths.extend(sorted(Path("logs").rglob("*.log")))
+        log_paths.extend(sorted(Path("logs").rglob("*.out")))
+        log_paths.extend(sorted(Path("logs").rglob("*.err")))
+        log_paths.extend(sorted(Path(".snakemake").rglob("*.log")))
+        for log_path in log_paths:
+            try:
+                with log_path.open("r", encoding="utf-8", errors="ignore") as handle:
+                    for line in handle:
+                        if "WARNING" in line or "Warning" in line:
+                            warnings.append(f"{log_path}: {line.rstrip()}")
+            except OSError:
+                continue
+
+        with report_path.open("w", encoding="utf-8") as handle:
+            handle.write("# Workflow summary\n\n")
+            handle.write("## Jobs run\n")
+            for job in jobs:
+                handle.write(f"- {job}\n")
+            handle.write("\n## Outputs\n")
+            for path in outputs:
+                handle.write(f"- {path}\n")
+            handle.write("\n## Warnings\n")
+            if warnings:
+                for line in warnings:
+                    handle.write(f"- {line}\n")
+            else:
+                handle.write("- None found in logs\n")
 
 
 rule maf_to_gvcf:

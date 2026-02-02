@@ -75,7 +75,7 @@ if [ -z "${SLURM_ARRAY_TASK_ID:-}" ]; then
   N="${#MAF_FILES[@]}"
   ARRAY="0-$((N-1))%4"
   echo "Submitting SLURM array with $N tasks (max 4 running at a time): $ARRAY"
-  SBATCH_ARGS=(--array="${ARRAY}")
+  SBATCH_ARGS=(--array="${ARRAY}" --output "${LOG_DIR}/%x_%A_%a.out" --error "${LOG_DIR}/%x_%A_%a.err")
   if [ -n "$ACCOUNT" ]; then
     SBATCH_ARGS+=(--account "$ACCOUNT")
   fi
