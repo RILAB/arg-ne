@@ -12,3 +12,4 @@ dependencies:
   - python=3.11
   - snakemake>=8.0.0
   - snakemake-executor-plugin-cluster-generic
+  - pytest
