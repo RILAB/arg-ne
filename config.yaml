@@ -1,6 +1,6 @@
 # Paths
-maf_dir: /path/to/maf_dir
-reference_fasta: /path/to/reference.fa
+maf_dir: testing
+reference_fasta: testing/ref.fa
 
 # Output locations
 gvcf_dir: gvcf
@@ -17,7 +17,7 @@ fill_gaps: false
 # Required for split.py
 # depth cutoff used to classify sites
 # Example: 10
-# depth: 10
+depth: 3
 
 # Optional: list of contigs to process
 # If omitted, the workflow expects reference_fasta.fai to exist.
