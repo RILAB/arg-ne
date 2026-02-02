@@ -8,7 +8,7 @@ def _run(cmd, cwd=None):
 
 def _write_vcf(path: Path):
     path.write_text(
-        """##fileformat=VCFv4.2\n"
+        "##fileformat=VCFv4.2\n"
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
         "1\t2\t.\tA\tT\t.\t.\t.\n"
         "1\t5\t.\tAAAA\tA\t.\t.\t.\n",

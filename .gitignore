@@ -4,6 +4,7 @@ logs/*
 example_data/*
 .snakemake/
 AGENTS.md
+tests/__pycache__/
 !example_data/ind1.maf.gz
 !example_data/ind2.maf.gz
 !example_data/ind3.maf.gz
