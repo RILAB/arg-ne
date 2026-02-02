@@ -44,9 +44,14 @@ def _normalize_contig(name: str) -> str:
 
 def _read_maf_contigs() -> set[str]:
     contigs = set()
-    for maf in sorted(MAF_DIR.glob("*.maf")):
+    maf_files = list(MAF_DIR.glob("*.maf")) + list(MAF_DIR.glob("*.maf.gz"))
+    for maf in sorted(maf_files):
         try:
-            with maf.open("r", encoding="utf-8") as handle:
+            if maf.name.endswith(".gz"):
+                handle = gzip.open(maf, "rt", encoding="utf-8")
+            else:
+                handle = maf.open("r", encoding="utf-8")
+            with handle:
                 for line in handle:
                     if not line or line.startswith("#"):
                         continue
