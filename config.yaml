@@ -47,3 +47,6 @@ default_mem_mb: 48000
 default_time: "48:00:00"
 slurm_account: jrigrp
 slurm_partition: high
+
+# Rule-specific resources
+# merge_contig_mem_mb: 256000

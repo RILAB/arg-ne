@@ -26,6 +26,7 @@ BGZIP_OUTPUT = bool(config.get("bgzip_output", False))
 NO_MERGE = bool(config.get("no_merge", False))
 GENOMICSDB_VCF_BUFFER_SIZE = int(config.get("genomicsdb_vcf_buffer_size", 1048576))
 GENOMICSDB_SEGMENT_SIZE = int(config.get("genomicsdb_segment_size", 1048576))
+MERGE_CONTIG_MEM_MB = int(config.get("merge_contig_mem_mb", config.get("default_mem_mb", 48000)))
 
 REF_BASE = ORIG_REF_FASTA.name
 if REF_BASE.endswith(".gz"):
@@ -300,6 +301,27 @@ rule summary_report:
         jobs.insert(0, ("rename_reference", [str(RENAMED_REF_FASTA)]))
         jobs.insert(0, ("index_reference", [REF_FAI, REF_DICT]))
 
+        temp_paths = set()
+        temp_paths.update(str(_gvcf_out(base)) for base in GVCF_BASES)
+        temp_paths.update(str(_gvcf_out(base)) + ".tbi" for base in GVCF_BASES)
+        temp_paths.update(
+            str(GVCF_DIR / "cleangVCF" / f"{base}.gvcf.gz") for base in GVCF_BASES
+        )
+        temp_paths.update(
+            str(GVCF_DIR / "cleangVCF" / f"{base}.gvcf.gz.tbi") for base in GVCF_BASES
+        )
+        temp_paths.update(
+            str(_split_out(base, contig))
+            for contig in CONTIGS
+            for base in GVCF_BASES
+        )
+        temp_paths.update(
+            str(_split_out(base, contig)) + ".tbi"
+            for contig in CONTIGS
+            for base in GVCF_BASES
+        )
+        temp_paths.update(str(RESULTS_DIR / "genomicsdb" / f"{contig}") for contig in CONTIGS)
+
         # Collect warnings from logs and snakemake logs.
         warnings = []
         log_paths = []
@@ -339,7 +361,8 @@ rule summary_report:
             for job, outputs in jobs:
                 handle.write(f"- {job}\n")
                 for path in outputs:
-                    handle.write(f"  - {path}\n")
+                    mark = "* " if path in temp_paths else ""
+                    handle.write(f"  - {mark}{path}\n")
             handle.write("\n## Files for ARG estimation\n")
             arg_outputs = (
                 [str(_split_prefix(c)) + ".clean" for c in CONTIGS]
@@ -347,6 +370,10 @@ rule summary_report:
             )
             for path in arg_outputs:
                 handle.write(f"- {path}\n")
+            handle.write(
+                "\n* Temporary outputs are marked with an asterisk and are removed "
+                "after a successful run.\n"
+            )
             handle.write("\n## Warnings\n")
             if warnings:
                 for line in warnings:
@@ -365,8 +392,8 @@ rule maf_to_gvcf:
         maf=lambda wc: _maf_input(wc.sample),
         ref=str(REF_FASTA),
     output:
-        gvcf=str(GVCF_DIR / (f"{{sample}}To{REF_BASE}.gvcf.gz")),
-        tbi=str(GVCF_DIR / (f"{{sample}}To{REF_BASE}.gvcf.gz.tbi")),
+        gvcf=temp(str(GVCF_DIR / (f"{{sample}}To{REF_BASE}.gvcf.gz"))),
+        tbi=temp(str(GVCF_DIR / (f"{{sample}}To{REF_BASE}.gvcf.gz.tbi"))),
     log:
         str(Path("logs") / "tassel" / "{sample}.log"),
     params:
@@ -413,8 +440,8 @@ rule drop_sv:
         gvcfs=[str(_gvcf_out(b)) for b in GVCF_BASES],
     output:
         bed=str(GVCF_DIR / "cleangVCF" / "dropped_indels.bed"),
-        gvcfs=[str(GVCF_DIR / "cleangVCF" / f"{b}.gvcf.gz") for b in GVCF_BASES],
-        tbis=[str(GVCF_DIR / "cleangVCF" / f"{b}.gvcf.gz.tbi") for b in GVCF_BASES],
+        gvcfs=[temp(str(GVCF_DIR / "cleangVCF" / f"{b}.gvcf.gz")) for b in GVCF_BASES],
+        tbis=[temp(str(GVCF_DIR / "cleangVCF" / f"{b}.gvcf.gz.tbi")) for b in GVCF_BASES],
         clean_dir=directory(str(GVCF_DIR / "cleangVCF")),
     params:
         cutoff=DROP_CUTOFF,
@@ -438,8 +465,8 @@ rule split_gvcf_by_contig:
         dict=REF_DICT,
         bed=str(GVCF_DIR / "cleangVCF" / "dropped_indels.bed"),
     output:
-        gvcf=str(GVCF_DIR / "cleangVCF" / "split_gvcf" / "{gvcf_base}.{contig}.gvcf.gz"),
-        tbi=str(GVCF_DIR / "cleangVCF" / "split_gvcf" / "{gvcf_base}.{contig}.gvcf.gz.tbi"),
+        gvcf=temp(str(GVCF_DIR / "cleangVCF" / "split_gvcf" / "{gvcf_base}.{contig}.gvcf.gz")),
+        tbi=temp(str(GVCF_DIR / "cleangVCF" / "split_gvcf" / "{gvcf_base}.{contig}.gvcf.gz.tbi")),
     shell:
         """
         set -euo pipefail
@@ -458,6 +485,8 @@ rule split_gvcf_by_contig:
 
 rule merge_contig:
     # Merge all samples for a contig with GenomicsDBImport + GenotypeGVCFs.
+    resources:
+        mem_mb=MERGE_CONTIG_MEM_MB,
     input:
         gvcfs=lambda wc: [str(_split_out(b, wc.contig)) for b in GVCF_BASES],
         ref=str(REF_FASTA_GATK),
@@ -466,7 +495,7 @@ rule merge_contig:
         bed=str(GVCF_DIR / "cleangVCF" / "dropped_indels.bed"),
     output:
         gvcf=str(RESULTS_DIR / "combined" / "combined.{contig}.gvcf.gz"),
-        workspace=directory(str(RESULTS_DIR / "genomicsdb" / "{contig}")),
+        workspace=temp(directory(str(RESULTS_DIR / "genomicsdb" / "{contig}"))),
     params:
         gvcf_args=lambda wc: " ".join(
             f"-V {str(_split_out(b, wc.contig))}" for b in GVCF_BASES
