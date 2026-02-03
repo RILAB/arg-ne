@@ -26,7 +26,12 @@ BGZIP_OUTPUT = bool(config.get("bgzip_output", False))
 NO_MERGE = bool(config.get("no_merge", False))
 GENOMICSDB_VCF_BUFFER_SIZE = int(config.get("genomicsdb_vcf_buffer_size", 1048576))
 GENOMICSDB_SEGMENT_SIZE = int(config.get("genomicsdb_segment_size", 1048576))
+MAF_TO_GVCF_THREADS = int(config.get("maf_to_gvcf_threads", 2))
+MAF_TO_GVCF_MEM_MB = int(config.get("maf_to_gvcf_mem_mb", 256000))
+MAF_TO_GVCF_TIME = str(config.get("maf_to_gvcf_time", "24:00:00"))
+MERGE_CONTIG_THREADS = int(config.get("merge_contig_threads", config.get("default_threads", 2)))
 MERGE_CONTIG_MEM_MB = int(config.get("merge_contig_mem_mb", config.get("default_mem_mb", 48000)))
+MERGE_CONTIG_TIME = str(config.get("merge_contig_time", config.get("default_time", "48:00:00")))
 
 REF_BASE = ORIG_REF_FASTA.name
 if REF_BASE.endswith(".gz"):
@@ -384,10 +389,10 @@ rule summary_report:
 
 rule maf_to_gvcf:
     # Convert each MAF to a gzipped gVCF using TASSEL.
-    threads: 2
+    threads: MAF_TO_GVCF_THREADS
     resources:
-        mem_mb=256000,
-        time="24:00:00"
+        mem_mb=MAF_TO_GVCF_MEM_MB,
+        time=MAF_TO_GVCF_TIME
     input:
         maf=lambda wc: _maf_input(wc.sample),
         ref=str(REF_FASTA),
@@ -485,8 +490,10 @@ rule split_gvcf_by_contig:
 
 rule merge_contig:
     # Merge all samples for a contig with GenomicsDBImport + GenotypeGVCFs.
+    threads: MERGE_CONTIG_THREADS
     resources:
         mem_mb=MERGE_CONTIG_MEM_MB,
+        time=MERGE_CONTIG_TIME,
     input:
         gvcfs=lambda wc: [str(_split_out(b, wc.contig)) for b in GVCF_BASES],
         ref=str(REF_FASTA_GATK),
