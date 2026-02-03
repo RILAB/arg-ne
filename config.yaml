@@ -37,6 +37,10 @@ filter_multiallelic: false
 bgzip_output: false
 no_merge: false
 
+# Optional: GenomicsDBImport tuning (buffer/segment sizes)
+# genomicsdb_vcf_buffer_size: 1048576
+# genomicsdb_segment_size: 1048576
+
 # Default SLURM resources (used by the provided profile)
 default_threads: 2
 default_mem_mb: 48000

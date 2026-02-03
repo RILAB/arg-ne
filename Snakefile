@@ -24,6 +24,8 @@ DROP_CUTOFF = config.get("drop_cutoff", "")
 FILTER_MULTIALLELIC = bool(config.get("filter_multiallelic", False))
 BGZIP_OUTPUT = bool(config.get("bgzip_output", False))
 NO_MERGE = bool(config.get("no_merge", False))
+GENOMICSDB_VCF_BUFFER_SIZE = int(config.get("genomicsdb_vcf_buffer_size", 1048576))
+GENOMICSDB_SEGMENT_SIZE = int(config.get("genomicsdb_segment_size", 1048576))
 
 REF_BASE = ORIG_REF_FASTA.name
 if REF_BASE.endswith(".gz"):
@@ -469,6 +471,8 @@ rule merge_contig:
         gvcf_args=lambda wc: " ".join(
             f"-V {str(_split_out(b, wc.contig))}" for b in GVCF_BASES
         ),
+        vcf_buffer_size=GENOMICSDB_VCF_BUFFER_SIZE,
+        segment_size=GENOMICSDB_SEGMENT_SIZE,
     shell:
         """
         set -euo pipefail
@@ -476,7 +480,9 @@ rule merge_contig:
         gatk --java-options "-Xmx100g -Xms100g" GenomicsDBImport \
           {params.gvcf_args} \
           --genomicsdb-workspace-path "{output.workspace}" \
-          -L "{wildcards.contig}"
+          -L "{wildcards.contig}" \
+          --genomicsdb-vcf-buffer-size {params.vcf_buffer_size} \
+          --genomicsdb-segment-size {params.segment_size}
         gatk --java-options "-Xmx100g -Xms100g" GenotypeGVCFs \
           -R "{input.ref}" \
           -V "gendb://{output.workspace}" \

@@ -83,6 +83,7 @@ By default the workflow uses these locations (override in `config.yaml`):
 - `scripts/split.py` supports `--filter-multiallelic` and `--bgzip-output` (toggle via `config.yaml`).
 - `scripts/filt_to_bed.py` merges `<prefix>.filtered`, `<prefix>.missing.bed`, and `dropped_indels.bed` into a final mask bed.
 - `no_merge: true` is for troubleshooting per-sample filtered regions only; it will likely break downstream steps because the combined mask bed is not merged.
+- If GenomicsDBImport fails with a buffer-size error, increase `genomicsdb_vcf_buffer_size` and `genomicsdb_segment_size` in `config.yaml` (set them above your longest gVCF line length).
 
 ## Downstream ARG estimation
 
