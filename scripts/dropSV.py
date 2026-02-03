@@ -237,6 +237,12 @@ def main() -> None:
             shutil.copy2(gvcf, out_gvcf)
             if gvcf.with_suffix(gvcf.suffix + ".tbi").exists():
                 shutil.copy2(gvcf.with_suffix(gvcf.suffix + ".tbi"), out_tbi)
+            else:
+                # Ensure an index exists for downstream steps.
+                proc = run_cmd(["tabix", "-p", "vcf", str(out_gvcf)])
+                if proc.returncode != 0:
+                    eprint(proc.stderr.strip() or "tabix failed")
+                    sys.exit(1)
             print("  no large indels found, file copied without changes.")
 
     print(
