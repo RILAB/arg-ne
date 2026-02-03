@@ -49,9 +49,9 @@ slurm_account: jrigrp
 slurm_partition: high
 
 # Rule-specific resources
-# merge_contig_mem_mb: 256000
 # maf_to_gvcf_threads: 2
 # maf_to_gvcf_mem_mb: 256000
 # maf_to_gvcf_time: "24:00:00"
 # merge_contig_threads: 2
 # merge_contig_time: "48:00:00"
+# merge_contig_mem_mb: 256000
