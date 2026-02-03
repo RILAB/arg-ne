@@ -313,6 +313,23 @@ rule summary_report:
                             warnings.append(f"{log_path}: {line.rstrip()}")
             except OSError:
                 continue
+        try:
+            maf_contigs = _read_maf_contigs()
+            ref_contigs = set(_read_fasta_contigs(ORIG_REF_FASTA))
+            missing_in_ref = sorted(set(maf_contigs) - ref_contigs)
+            missing_in_maf = sorted(ref_contigs - set(maf_contigs))
+            if missing_in_ref:
+                warnings.append(
+                    "WARNING: MAF contigs not present in reference (showing up to 5): "
+                    + ", ".join(missing_in_ref[:5])
+                )
+            if missing_in_maf:
+                warnings.append(
+                    "WARNING: Reference contigs not present in MAFs (showing up to 5): "
+                    + ", ".join(missing_in_maf[:5])
+                )
+        except Exception as exc:
+            warnings.append(f"WARNING: Failed to compare MAF vs reference contigs: {exc}")
 
         with report_path.open("w", encoding="utf-8") as handle:
             handle.write("# Workflow summary\n\n")
