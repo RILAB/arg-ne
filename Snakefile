@@ -308,12 +308,8 @@ rule summary_report:
 
         temp_paths = set()
         temp_paths.update(str(_gvcf_out(base)) for base in GVCF_BASES)
-        temp_paths.update(str(_gvcf_out(base)) + ".tbi" for base in GVCF_BASES)
         temp_paths.update(
             str(GVCF_DIR / "cleangVCF" / f"{base}.gvcf.gz") for base in GVCF_BASES
-        )
-        temp_paths.update(
-            str(GVCF_DIR / "cleangVCF" / f"{base}.gvcf.gz.tbi") for base in GVCF_BASES
         )
         temp_paths.update(
             str(_split_out(base, contig))
@@ -368,6 +364,10 @@ rule summary_report:
                 for path in outputs:
                     mark = "* " if path in temp_paths else ""
                     handle.write(f"  - {mark}{path}\n")
+            handle.write(
+                "\n* Temporary outputs are marked with an asterisk and are removed "
+                "after a successful run.\n"
+            )
             handle.write("\n## Files for ARG estimation\n")
             arg_outputs = (
                 [str(_split_prefix(c)) + ".clean" for c in CONTIGS]
@@ -375,10 +375,6 @@ rule summary_report:
             )
             for path in arg_outputs:
                 handle.write(f"- {path}\n")
-            handle.write(
-                "\n* Temporary outputs are marked with an asterisk and are removed "
-                "after a successful run.\n"
-            )
             handle.write("\n## Warnings\n")
             if warnings:
                 for line in warnings:
@@ -446,7 +442,7 @@ rule drop_sv:
     output:
         bed=str(GVCF_DIR / "cleangVCF" / "dropped_indels.bed"),
         gvcfs=[temp(str(GVCF_DIR / "cleangVCF" / f"{b}.gvcf.gz")) for b in GVCF_BASES],
-        tbis=[temp(str(GVCF_DIR / "cleangVCF" / f"{b}.gvcf.gz.tbi")) for b in GVCF_BASES],
+        tbis=[str(GVCF_DIR / "cleangVCF" / f"{b}.gvcf.gz.tbi") for b in GVCF_BASES],
         clean_dir=directory(str(GVCF_DIR / "cleangVCF")),
     params:
         cutoff=DROP_CUTOFF,
@@ -496,6 +492,7 @@ rule merge_contig:
         time=MERGE_CONTIG_TIME,
     input:
         gvcfs=lambda wc: [str(_split_out(b, wc.contig)) for b in GVCF_BASES],
+        tbis=lambda wc: [str(_split_out(b, wc.contig)) + ".tbi" for b in GVCF_BASES],
         ref=str(REF_FASTA_GATK),
         fai=REF_FAI,
         dict=REF_DICT,
