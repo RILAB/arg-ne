@@ -32,7 +32,7 @@ for ext in (".fa", ".fasta"):
     if REF_BASE.endswith(ext):
         REF_BASE = REF_BASE[: -len(ext)]
 
-RENAMED_REF_FASTA = RESULTS_DIR / "refs" / "reference_renamed.fa"
+RENAMED_REF_FASTA = RESULTS_DIR / "refs" / "reference_gvcf.fa"
 
 
 def _normalize_contig(name: str) -> str:
@@ -61,10 +61,9 @@ def _read_maf_contigs() -> set[str]:
                 for line in handle:
                     if not line or line.startswith("#"):
                         continue
-                    if line.startswith("s "):
-                        parts = line.split()
-                        if len(parts) >= 2:
-                            contigs.add(parts[1])
+                    parts = line.split()
+                    if parts and parts[0] == "s" and len(parts) >= 2:
+                        contigs.add(parts[1])
         except OSError:
             continue
     return contigs
@@ -88,61 +87,60 @@ def _read_fasta_contigs(path: Path) -> list[str]:
     return contigs
 
 
-def _contig_map():
-    maf_contigs = _read_maf_contigs()
-    fasta_contigs = _read_fasta_contigs(ORIG_REF_FASTA)
-    if not maf_contigs or not fasta_contigs:
-        print(
-            "WARNING: MAF and FASTA contig sets differ. "
-            "Only chr/Chr prefixes, case differences, and leading zeros are auto-resolved.",
-            file=os.sys.stderr,
-        )
-        return False, {}
+def _read_gvcf_contigs(path: Path) -> list[str]:
+    contigs = []
+    opener = gzip.open if path.suffix == ".gz" else open
+    try:
+        with opener(path, "rt", encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("##contig=<ID="):
+                    entry = line.strip().split("ID=", 1)[1]
+                    contig = entry.split(",", 1)[0].split(">", 1)[0]
+                    contigs.append(contig)
+                elif line.startswith("#CHROM"):
+                    break
+    except OSError:
+        pass
+    return contigs
 
-    maf_norm = {}
-    for name in maf_contigs:
-        maf_norm.setdefault(_normalize_contig(name), []).append(name)
+
+def _contig_map_from_gvcf(gvcf_path: Path):
+    gvcf_contigs = _read_gvcf_contigs(gvcf_path)
+    fasta_contigs = _read_fasta_contigs(ORIG_REF_FASTA)
+    if not gvcf_contigs or not fasta_contigs:
+        raise ValueError(
+            "Unable to read contigs from gVCF or reference; cannot rename reference."
+        )
+
+    gvcf_norm = {}
+    for name in gvcf_contigs:
+        gvcf_norm.setdefault(_normalize_contig(name), []).append(name)
 
     fasta_norm = {}
     for name in fasta_contigs:
         fasta_norm.setdefault(_normalize_contig(name), []).append(name)
 
-    missing = sorted(set(maf_norm.keys()) - set(fasta_norm.keys()))
-    if missing:
-        print(
-            "WARNING: MAF contigs not found in reference after normalization; "
-            "cannot auto-rename reference to match MAF contigs.",
-            file=os.sys.stderr,
+    overlap = sorted(set(gvcf_norm.keys()) & set(fasta_norm.keys()))
+    if not overlap:
+        raise ValueError(
+            "No overlapping contigs between gVCF and reference after normalization."
         )
-        print(f"WARNING: Missing contig examples: {missing[:5]}", file=os.sys.stderr)
-        return False, {}
 
     mapping = {}
-    for key in maf_norm:
-        if len(maf_norm[key]) != 1 or len(fasta_norm[key]) != 1:
-            print(
-                "WARNING: MAF/FASTA contig mapping is ambiguous; "
-                "not renaming reference.",
-                file=os.sys.stderr,
+    for key in overlap:
+        if len(gvcf_norm[key]) != 1 or len(fasta_norm[key]) != 1:
+            raise ValueError(
+                "Ambiguous contig mapping between gVCF and reference; aborting."
             )
-            return False, {}
-        mapping[fasta_norm[key][0]] = maf_norm[key][0]
+        mapping[fasta_norm[key][0]] = gvcf_norm[key][0]
 
-    if any(k != v for k, v in mapping.items()):
-        print(
-            "WARNING: MAF/FASTA contigs differ only by chr prefix/zeros; "
-            "a renamed reference will be generated to match MAF contigs.",
-            file=os.sys.stderr,
-        )
-        return True, mapping
-
-    return False, {}
+    return mapping
 
 
-NEED_RENAME, CONTIG_MAP = _contig_map()
-REF_FASTA = RENAMED_REF_FASTA if NEED_RENAME else ORIG_REF_FASTA
-REF_FAI = str(REF_FASTA) + ".fai"
-REF_DICT = str(REF_FASTA.with_suffix(".dict"))
+REF_FASTA = ORIG_REF_FASTA
+REF_FASTA_GATK = RENAMED_REF_FASTA
+REF_FAI = str(REF_FASTA_GATK) + ".fai"
+REF_DICT = str(REF_FASTA_GATK.with_suffix(".dict"))
 
 def _discover_samples():
     if "samples" in config:
@@ -223,33 +221,34 @@ rule all:
         [str(_split_prefix(c)) + ".filtered.bed" for c in CONTIGS],
         str(RESULTS_DIR / "summary.md"),
 
-if NEED_RENAME:
-    rule rename_reference:
-        # Create a renamed reference FASTA to match MAF contig names.
-        input:
-            ref=str(ORIG_REF_FASTA),
-        output:
-            ref=str(RENAMED_REF_FASTA),
-        run:
-            from pathlib import Path
+rule rename_reference:
+    # Create a renamed reference FASTA to match gVCF contig names.
+    input:
+        ref=str(ORIG_REF_FASTA),
+        gvcf=lambda wc: str(_gvcf_out(GVCF_BASES[0])),
+    output:
+        ref=str(RENAMED_REF_FASTA),
+    run:
+        from pathlib import Path
 
-            out_path = Path(output.ref)
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            with _open_fasta(Path(input.ref)) as fin, open(
-                output.ref, "w", encoding="utf-8"
-            ) as fout:
-                for line in fin:
-                    if line.startswith(">"):
-                        name = line[1:].strip().split()[0]
-                        new_name = CONTIG_MAP.get(name, name)
-                        fout.write(f">{new_name}\n")
-                    else:
-                        fout.write(line)
+        out_path = Path(output.ref)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        mapping = _contig_map_from_gvcf(Path(input.gvcf))
+        with _open_fasta(Path(input.ref)) as fin, open(
+            output.ref, "w", encoding="utf-8"
+        ) as fout:
+            for line in fin:
+                if line.startswith(">"):
+                    name = line[1:].strip().split()[0]
+                    new_name = mapping.get(name, name)
+                    fout.write(f">{new_name}\n")
+                else:
+                    fout.write(line)
 
 rule index_reference:
     # Create reference FASTA index and sequence dictionary for GATK.
     input:
-        ref=str(REF_FASTA),
+        ref=str(REF_FASTA_GATK),
     output:
         fai=REF_FAI,
         dict=REF_DICT,
@@ -296,8 +295,7 @@ rule summary_report:
             ),
             ("mask_bed", [str(_split_prefix(c)) + ".filtered.bed" for c in CONTIGS]),
         ]
-        if NEED_RENAME:
-            jobs.insert(0, ("rename_reference", [str(RENAMED_REF_FASTA)]))
+        jobs.insert(0, ("rename_reference", [str(RENAMED_REF_FASTA)]))
         jobs.insert(0, ("index_reference", [REF_FAI, REF_DICT]))
 
         # Collect warnings from logs and snakemake logs.
@@ -416,7 +414,7 @@ rule split_gvcf_by_contig:
     # Split each cleaned gVCF into per-contig gVCFs for merge.
     input:
         gvcf=lambda wc: str(GVCF_DIR / "cleangVCF" / f"{wc.gvcf_base}.gvcf.gz"),
-        ref=str(REF_FASTA),
+        ref=str(REF_FASTA_GATK),
         fai=REF_FAI,
         dict=REF_DICT,
         bed=str(GVCF_DIR / "cleangVCF" / "dropped_indels.bed"),
@@ -443,7 +441,7 @@ rule merge_contig:
     # Merge all samples for a contig with GenomicsDBImport + GenotypeGVCFs.
     input:
         gvcfs=lambda wc: [str(_split_out(b, wc.contig)) for b in GVCF_BASES],
-        ref=str(REF_FASTA),
+        ref=str(REF_FASTA_GATK),
         fai=REF_FAI,
         dict=REF_DICT,
         bed=str(GVCF_DIR / "cleangVCF" / "dropped_indels.bed"),
