@@ -10,12 +10,12 @@ results_dir: results
 # tassel_dir defaults to "tassel-5-standalone" if omitted
 # tassel_dir: /path/to/tassel-5-standalone
 
-# Parameters
+# Parameters for Tassel maf to gvcf (mostly safe to ignore)
 sample_suffix: _anchorwave
 fill_gaps: false
 
 # Optional for split.py
-# depth cutoff used to classify sites (defaults to number of MAF files)
+# depth cutoff used to classify sites ("null" defaults to number of MAF files)
 # Example: 10
 depth: null
 
@@ -29,10 +29,12 @@ contigs:
 #   - sampleA
 #   - sampleB
 
-# Optional: dropSV.py cutoff for large indels
+# Optional: dropSV.py cutoff for large indels. 
+# Recommended to set higher (e.g. 10000000) for complex genomes. This requires more memory.
 # drop_cutoff: 9101264
 
-# Optional: split.py / filt_to_bed.py switches
+# Optional: split.py / filt_to_bed.py switches. 
+# Setting "no_merge" to false may be useful for inspecting genomes, but will likely break the rest of the pipeline.
 filter_multiallelic: false
 bgzip_output: false
 no_merge: false
