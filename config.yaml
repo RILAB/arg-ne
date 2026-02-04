@@ -20,7 +20,7 @@ fill_gaps: false
 depth: null
 
 # Optional: list of contigs to process
-# If omitted, the workflow expects reference_fasta.fai to exist.
+# If omitted, the workflow runa all contigs in the fasta reference, but expects reference_fasta.fai to exist.
 contigs:
   - 1
 
