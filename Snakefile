@@ -32,6 +32,7 @@ MAF_TO_GVCF_TIME = str(config.get("maf_to_gvcf_time", "24:00:00"))
 MERGE_CONTIG_THREADS = int(config.get("merge_contig_threads", config.get("default_threads", 2)))
 MERGE_CONTIG_MEM_MB = int(config.get("merge_contig_mem_mb", config.get("default_mem_mb", 48000)))
 MERGE_CONTIG_TIME = str(config.get("merge_contig_time", config.get("default_time", "48:00:00")))
+PLOIDY = int(config.get("ploidy", 2))
 
 REF_BASE = ORIG_REF_FASTA.name
 if REF_BASE.endswith(".gz"):
@@ -521,7 +522,8 @@ rule merge_contig:
           -V "gendb://{output.workspace}" \
           -O "{output.gvcf}" \
           -L "{wildcards.contig}" \
-          --include-non-variant-sites
+          --include-non-variant-sites \
+          --sample-ploidy {PLOIDY}
         """
 
 
