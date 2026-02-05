@@ -24,6 +24,9 @@ depth: null
 contigs:
   - 1
 
+# Ploidy for GATK GenotypeGVCFs (workflow defaults to haploid; not validated for diploid assemblies)
+ploidy: 1
+
 # Optional: override gVCF sample list (default is all *.maf in maf_dir)
 # samples:
 #   - sampleA

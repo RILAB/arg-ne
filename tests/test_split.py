@@ -87,3 +87,45 @@ def test_singer_dp_rewrite(tmp_path: Path):
     info = line.split("\t")[7]
     # Two non-missing samples -> DP=2
     assert "DP=2" in info
+
+
+def _count_vcf_records(path: Path) -> int:
+    return len([l for l in path.read_text(encoding="utf-8").splitlines() if l and not l.startswith("#")])
+
+
+def test_split_invariant_reference_block(tmp_path: Path):
+    ref_fai = tmp_path / "ref.fa.fai"
+    ref_fai.write_text("1\t5\t0\t0\t0\n", encoding="utf-8")
+
+    gvcf = tmp_path / "in.gvcf"
+    gvcf.write_text(
+        "##fileformat=VCFv4.2\n"
+        "##contig=<ID=1,length=5>\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\n"
+        "1\t1\t.\tA\t<NON_REF>\t.\t.\tEND=5\tGT:AD\t0/0:5,0\n",
+        encoding="utf-8",
+    )
+
+    prefix = tmp_path / "out"
+    _run(
+        [
+            sys.executable,
+            str(Path("scripts") / "split.py"),
+            "--depth",
+            "1",
+            "--out-prefix",
+            str(prefix),
+            "--fai",
+            str(ref_fai),
+            str(gvcf),
+        ],
+        cwd=Path.cwd(),
+    )
+
+    inv = tmp_path / "out.inv"
+    missing = tmp_path / "out.missing.bed"
+
+    assert inv.exists()
+    assert missing.exists()
+    assert _count_vcf_records(inv) == 5
+    assert _sum_bed(missing) == 0
