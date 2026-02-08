@@ -695,28 +695,12 @@ rule summary_report:
                 inv_counts[contig] = [0 for _ in range(n_windows)]
                 variant_counts[contig] = [0 for _ in range(n_windows)]
 
-            for path in input.filts:
+            for path in input.beds:
                 try:
-                    with _open_text(path) as f_in:
-                        for line in f_in:
-                            if not line or line.startswith("#"):
-                                continue
-                            parts = line.rstrip("\n").split("\t")
-                            if len(parts) < 2:
-                                continue
-                            contig = parts[0]
-                            if contig not in filtered_counts:
-                                continue
-                            try:
-                                pos = int(parts[1])
-                            except ValueError:
-                                continue
-                            idx = _window_index(pos, window)
-                            if idx < len(filtered_counts[contig]):
-                                filtered_counts[contig][idx] += 1
+                    _add_bed_counts(path, filtered_counts, contig_lengths, window)
                 except OSError as exc:
                     handle.write(
-                        f"<p>Failed to read filtered sites from {html.escape(path)}: "
+                        f"<p>Failed to read filtered bed from {html.escape(path)}: "
                         f"{html.escape(str(exc))}</p>\n"
                     )
 
@@ -732,7 +716,7 @@ rule summary_report:
                     _svg_bar_chart(
                         filtered_counts[contig],
                         labels=labels,
-                        title=f"Filtered sites: {contig}",
+                        title=f"Filtered sites (bed bp): {contig}",
                         x_label="1Mb window",
                         y_label="Site count",
                         tick_stride=max(len(labels) // 12, 1),
