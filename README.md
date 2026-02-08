@@ -93,6 +93,16 @@ By default the workflow uses these locations (override in `config.yaml`):
 - Resource knobs (memory/threads/time) and GenomicsDB buffer sizes are configurable in `config.yaml` (e.g., `merge_contig_mem_mb`, `maf_to_gvcf_*`, `genomicsdb_*`).
 - To cap the SLURM array concurrency for `scripts/maf_to_gvcf.sh`, set `maf_to_gvcf_array_max_jobs` in `config.yaml` (default 4).
 
+## Changes since v0.1
+
+- Added HTML summary report with embedded SVG histograms and expanded output details.
+- Split logic tightened: clean sites now require all samples called; missing GTs are routed to filtered.
+- Invariant/filtered/clean outputs are enforced as mutually exclusive per position; filtered BED spans now respect END/REF lengths and subtract inv/clean.
+- GenotypeGVCFs now runs with genotype calling and non‑variant output enabled; TASSEL `outputJustGT` default set to `false` to retain likelihoods for calling.
+- Added accessibility mask generation (`combined.<contig>.accessible.npz`) for scikit‑allel workflows.
+- New/expanded validation and tests: split coverage checks, filtered‑bed tests, integration tests gated by `RUN_INTEGRATION=1`.
+- Example data regenerated via msprime with indels and AnchorWave‑style MAF formatting.
+
 ## Downstream Uses
 
 ### ARG estimation
