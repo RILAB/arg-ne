@@ -75,7 +75,7 @@ By default the workflow uses these locations (override in `config.yaml`):
 - `results/split/combined.<contig>.missing.bed` : missing positions
 - `results/split/combined.<contig>.filtered.bed` : merged mask bed
 - `results/split/combined.<contig>.accessible.npz` : boolean accessibility array (union of clean + invariant sites), for scikit-allel statistics
-- `results/summary.md` : markdown summary of jobs run, outputs created, and warnings
+- `results/summary.html` : HTML summary of jobs run, outputs created, and warnings
 
 ## Notes
 

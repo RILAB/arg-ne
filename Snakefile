@@ -242,7 +242,7 @@ rule all:
         [str(_split_prefix(c)) + ".filtered.bed" for c in CONTIGS],
         [str(_split_prefix(c)) + ".coverage.txt" for c in CONTIGS],
         [str(_accessibility_out(c)) for c in CONTIGS],
-        str(RESULTS_DIR / "summary.md"),
+        str(RESULTS_DIR / "summary.html"),
 
 rule rename_reference:
     # Create a renamed reference FASTA to match gVCF contig names.
@@ -283,18 +283,202 @@ rule index_reference:
         """
 
 rule summary_report:
-    # Write a markdown summary of jobs, outputs, and warnings.
+    # Write an HTML summary of jobs, outputs, and warnings.
     input:
         combined=[str(_combined_out(c)) for c in CONTIGS],
         beds=[str(_split_prefix(c)) + ".filtered.bed" for c in CONTIGS],
+        invs=[str(_split_prefix(c)) + ".inv" + SPLIT_SUFFIX for c in CONTIGS],
+        filts=[str(_split_prefix(c)) + ".filtered" + SPLIT_SUFFIX for c in CONTIGS],
+        cleans=[str(_split_prefix(c)) + ".clean" + SPLIT_SUFFIX for c in CONTIGS],
         dropped=str(GVCF_DIR / "cleangVCF" / "dropped_indels.bed"),
     output:
-        report=str(RESULTS_DIR / "summary.md"),
+        report=str(RESULTS_DIR / "summary.html"),
     run:
         from pathlib import Path
+        import gzip
+        import html
 
         report_path = Path(output.report)
         report_path.parent.mkdir(parents=True, exist_ok=True)
+
+        def _open_text(path: str):
+            if str(path).endswith(".gz"):
+                return gzip.open(path, "rt")
+            return open(path, "r", encoding="utf-8", errors="ignore")
+
+        def _read_fai_lengths(path: str) -> dict[str, int]:
+            lengths: dict[str, int] = {}
+            with open(path, "r", encoding="utf-8") as handle:
+                for line in handle:
+                    if not line.strip():
+                        continue
+                    parts = line.rstrip("\n").split("\t")
+                    if len(parts) < 2:
+                        continue
+                    try:
+                        lengths[parts[0]] = int(parts[1])
+                    except ValueError:
+                        continue
+            return lengths
+
+        def _window_index(pos: int, window: int) -> int:
+            return max((pos - 1) // window, 0)
+
+        def _is_variant_alt(alt_field: str) -> bool:
+            if not alt_field or alt_field == ".":
+                return False
+            alts = [a.strip() for a in alt_field.split(",") if a.strip()]
+            alts = [a for a in alts if a != "<NON_REF>"]
+            return len(alts) > 0
+
+        def _add_bed_counts(
+            path: str,
+            counts: dict[str, list[int]],
+            contig_lengths: dict[str, int],
+            window: int,
+        ) -> None:
+            try:
+                with _open_text(path) as f_in:
+                    for line in f_in:
+                        if not line or line.startswith("#"):
+                            continue
+                        parts = line.rstrip("\n").split("\t")
+                        if len(parts) < 3:
+                            continue
+                        contig = parts[0]
+                        if contig not in counts:
+                            continue
+                        try:
+                            start = int(parts[1])
+                            end = int(parts[2])
+                        except ValueError:
+                            continue
+                        if end <= start:
+                            continue
+                        # BED is 0-based half-open, convert to 1-based positions for windows.
+                        pos = start + 1
+                        while pos <= end:
+                            idx = _window_index(pos, window)
+                            if idx >= len(counts[contig]):
+                                break
+                            window_end = min((idx + 1) * window, contig_lengths[contig])
+                            span_end = min(end, window_end)
+                            counts[contig][idx] += max(span_end - pos + 1, 0)
+                            pos = span_end + 1
+            except OSError:
+                pass
+
+        def _svg_bar_chart(
+            values: list[int],
+            labels: list[str] | None = None,
+            width: int = 900,
+            height: int = 240,
+            title: str | None = None,
+            x_label: str | None = None,
+            y_label: str | None = None,
+            tick_stride: int = 1,
+        ) -> str:
+            if not values:
+                return "<p>No data available.</p>"
+            safe_title = html.escape(title) if title else ""
+            max_val = max(values)
+            max_val = max_val if max_val > 0 else 1
+            margin = {"left": 60, "right": 20, "top": 30, "bottom": 50}
+            plot_w = width - margin["left"] - margin["right"]
+            plot_h = height - margin["top"] - margin["bottom"]
+            bar_w = plot_w / len(values)
+
+            parts = [
+                f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
+                'xmlns="http://www.w3.org/2000/svg" role="img">',
+                '<rect width="100%" height="100%" fill="white"/>',
+            ]
+            if title:
+                parts.append(
+                    f'<text x="{width/2}" y="20" text-anchor="middle" '
+                    f'font-size="14" font-family="sans-serif">{safe_title}</text>'
+                )
+            if y_label:
+                parts.append(
+                    f'<text x="16" y="{height/2}" text-anchor="middle" '
+                    f'font-size="12" font-family="sans-serif" '
+                    f'transform="rotate(-90 16 {height/2})">{html.escape(y_label)}</text>'
+                )
+            if x_label:
+                parts.append(
+                    f'<text x="{width/2}" y="{height-8}" text-anchor="middle" '
+                    f'font-size="12" font-family="sans-serif">{html.escape(x_label)}</text>'
+                )
+
+            # Axes
+            x0 = margin["left"]
+            y0 = margin["top"] + plot_h
+            parts.append(
+                f'<line x1="{x0}" y1="{y0}" x2="{x0 + plot_w}" y2="{y0}" '
+                'stroke="#333" stroke-width="1"/>'
+            )
+            parts.append(
+                f'<line x1="{x0}" y1="{margin["top"]}" x2="{x0}" y2="{y0}" '
+                'stroke="#333" stroke-width="1"/>'
+            )
+            # Y-axis ticks
+            for i in range(5):
+                frac = i / 4
+                y = y0 - frac * plot_h
+                val = int(round(frac * max_val))
+                parts.append(
+                    f'<line x1="{x0 - 4}" y1="{y:.2f}" x2="{x0}" y2="{y:.2f}" '
+                    'stroke="#333" stroke-width="1"/>'
+                )
+                parts.append(
+                    f'<text x="{x0 - 8}" y="{y + 4:.2f}" text-anchor="end" '
+                    f'font-size="10" font-family="sans-serif">{val:,}</text>'
+                )
+
+            for i, val in enumerate(values):
+                bar_h = (val / max_val) * plot_h
+                x = x0 + i * bar_w
+                y = y0 - bar_h
+                parts.append(
+                    f'<rect x="{x:.2f}" y="{y:.2f}" width="{bar_w - 1:.2f}" '
+                    f'height="{bar_h:.2f}" fill="#4C78A8"/>'
+                )
+
+            if labels:
+                for i, label in enumerate(labels):
+                    if i % max(tick_stride, 1) != 0:
+                        continue
+                    x = x0 + (i + 0.5) * bar_w
+                    parts.append(
+                        f'<text x="{x:.2f}" y="{y0 + 14}" text-anchor="middle" '
+                        f'font-size="10" font-family="sans-serif" '
+                        f'transform="rotate(45 {x:.2f} {y0 + 14})">{html.escape(label)}</text>'
+                    )
+            parts.append("</svg>")
+            return "\n".join(parts)
+
+        def _histogram(values: list[int], bins: int = 20) -> tuple[list[int], list[str]]:
+            if not values:
+                return [], []
+            vmin = min(values)
+            vmax = max(values)
+            if vmax == vmin:
+                return [len(values)], [f"{vmin}"]
+            bins = max(1, bins)
+            width = max(1, (vmax - vmin + bins) // bins)
+            edges = list(range(vmin, vmax + width, width))
+            counts = [0 for _ in range(len(edges) - 1)]
+            for v in values:
+                idx = min((v - vmin) // width, len(counts) - 1)
+                counts[idx] += 1
+            labels = []
+            for i in range(len(counts)):
+                lo = edges[i]
+                hi = edges[i + 1] - 1
+                if i == len(counts) - 1:
+                    hi = edges[i + 1] - 1
+                labels.append(f"{lo}-{hi}")
+            return counts, labels
 
         jobs = [
             ("index_reference", [REF_FAI, REF_DICT]),
@@ -384,35 +568,283 @@ rule summary_report:
             warnings.append(f"WARNING: Failed to compare MAF vs reference contigs: {exc}")
 
         with report_path.open("w", encoding="utf-8") as handle:
-            handle.write("# Workflow summary\n\n")
-            handle.write("## Jobs run\n")
+            handle.write("<!doctype html>\n")
+            handle.write("<html lang=\"en\">\n")
+            handle.write("<head>\n")
+            handle.write("<meta charset=\"utf-8\" />\n")
+            handle.write("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n")
+            handle.write("<title>Workflow summary</title>\n")
+            handle.write("<style>\n")
+            handle.write("body { font-family: sans-serif; margin: 24px; color: #111; }\n")
+            handle.write("h1, h2, h3 { margin-top: 1.4em; }\n")
+            handle.write("code { background: #f6f6f6; padding: 0 4px; }\n")
+            handle.write("table { border-collapse: collapse; margin: 12px 0; }\n")
+            handle.write("th, td { border: 1px solid #ccc; padding: 4px 8px; }\n")
+            handle.write(".temp { color: #555; }\n")
+            handle.write("</style>\n")
+            handle.write("</head>\n")
+            handle.write("<body>\n")
+
+            handle.write("<h1>Workflow summary</h1>\n")
+            handle.write("<h2>Jobs run</h2>\n")
+            handle.write("<ul>\n")
             for job, outputs in jobs:
-                handle.write(f"- {job}\n")
+                handle.write(f"<li><strong>{html.escape(job)}</strong>\n")
+                handle.write("<ul>\n")
                 for path in outputs:
-                    mark = "* " if path in temp_paths else ""
-                    handle.write(f"  - {mark}{path}\n")
+                    mark = " *" if path in temp_paths else ""
+                    cls = " class=\"temp\"" if path in temp_paths else ""
+                    handle.write(
+                        f"<li{cls}><code>{html.escape(path)}</code>{html.escape(mark)}</li>\n"
+                    )
+                handle.write("</ul>\n")
+                handle.write("</li>\n")
+            handle.write("</ul>\n")
             handle.write(
-                "\n* Temporary outputs are marked with an asterisk and are removed "
-                "after a successful run.\n"
+                "<p><em>Temporary outputs are marked with an asterisk and are removed "
+                "after a successful run.</em></p>\n"
             )
-            handle.write("\n## Files for ARG estimation\n")
+
+            handle.write("<h2>Files for ARG estimation</h2>\n")
             arg_outputs = (
                 [str(_split_prefix(c)) + ".clean" for c in CONTIGS]
                 + [str(_split_prefix(c)) + ".filtered.bed" for c in CONTIGS]
                 + [str(_accessibility_out(c)) for c in CONTIGS]
             )
+            handle.write("<ul>\n")
             for path in arg_outputs:
-                handle.write(f"- {path}\n")
+                handle.write(f"<li><code>{html.escape(path)}</code></li>\n")
+            handle.write("</ul>\n")
             handle.write(
-                "\n* Accessibility arrays are provided to enable computing statistics with "
-                "scikit-allel.\n"
+                "<p><em>Accessibility arrays are provided to enable computing statistics "
+                "with scikit-allel.</em></p>\n"
             )
-            handle.write("\n## Warnings\n")
-            if warnings:
-                for line in warnings:
-                    handle.write(f"- {line}\n")
+
+            handle.write("<h2>Dropped indel sizes</h2>\n")
+            bin_edges = [1, 10, 100, 1_000, 10_000, 100_000, 1_000_000, 10_000_000]
+            bin_labels = [
+                "1-9",
+                "10-99",
+                "100-999",
+                "1,000-9,999",
+                "10,000-99,999",
+                "100,000-999,999",
+                "1,000,000-9,999,999",
+                ">=10,000,000",
+            ]
+            bin_counts = [0 for _ in bin_labels]
+            total_indels = 0
+            max_size = None
+            try:
+                with open(input.dropped, "r", encoding="utf-8") as bed_handle:
+                    for line in bed_handle:
+                        if not line.strip():
+                            continue
+                        parts = line.rstrip("\n").split("\t")
+                        if len(parts) < 3:
+                            continue
+                        try:
+                            start = int(parts[1])
+                            end = int(parts[2])
+                        except ValueError:
+                            continue
+                        size = max(end - start, 0)
+                        if size == 0:
+                            continue
+                        total_indels += 1
+                        if max_size is None or size > max_size:
+                            max_size = size
+                        placed = False
+                        for idx, edge in enumerate(bin_edges):
+                            if size < edge:
+                                bin_counts[idx] += 1
+                                placed = True
+                                break
+                        if not placed:
+                            bin_counts[-1] += 1
+            except OSError as exc:
+                handle.write(f"<p>Failed to read dropped indel BED: {html.escape(str(exc))}</p>\n")
             else:
-                handle.write("- None found in logs\n")
+                handle.write(f"<p>Total dropped indel intervals: {total_indels}</p>\n")
+                if max_size is not None:
+                    handle.write(f"<p>Max dropped indel size (bp): {max_size:,}</p>\n")
+                handle.write(
+                    _svg_bar_chart(
+                        bin_counts,
+                        labels=bin_labels,
+                        title="Dropped indel size histogram",
+                        x_label="Indel size (bp)",
+                        y_label="Count",
+                        tick_stride=1,
+                    )
+                )
+
+            handle.write("<h2>Filtered sites per 1Mb window</h2>\n")
+            contig_lengths = _read_fai_lengths(REF_FAI)
+            window = 1_000_000
+            filtered_counts: dict[str, list[int]] = {}
+            inv_counts: dict[str, list[int]] = {}
+            variant_counts: dict[str, list[int]] = {}
+            contig_names = [str(c) for c in CONTIGS]
+            for contig in contig_names:
+                length = contig_lengths.get(contig)
+                if length is None:
+                    continue
+                n_windows = (length + window - 1) // window
+                filtered_counts[contig] = [0 for _ in range(n_windows)]
+                inv_counts[contig] = [0 for _ in range(n_windows)]
+                variant_counts[contig] = [0 for _ in range(n_windows)]
+
+            for path in input.filts:
+                try:
+                    with _open_text(path) as f_in:
+                        for line in f_in:
+                            if not line or line.startswith("#"):
+                                continue
+                            parts = line.rstrip("\n").split("\t")
+                            if len(parts) < 2:
+                                continue
+                            contig = parts[0]
+                            if contig not in filtered_counts:
+                                continue
+                            try:
+                                pos = int(parts[1])
+                            except ValueError:
+                                continue
+                            idx = _window_index(pos, window)
+                            if idx < len(filtered_counts[contig]):
+                                filtered_counts[contig][idx] += 1
+                except OSError as exc:
+                    handle.write(
+                        f"<p>Failed to read filtered sites from {html.escape(path)}: "
+                        f"{html.escape(str(exc))}</p>\n"
+                    )
+
+            for contig in contig_names:
+                if contig not in filtered_counts:
+                    continue
+                labels = []
+                for idx in range(len(filtered_counts[contig])):
+                    start_mb = idx
+                    labels.append(f"{start_mb}-{start_mb + 1}Mb")
+                handle.write(f"<h3>{html.escape(contig)}</h3>\n")
+                handle.write(
+                    _svg_bar_chart(
+                        filtered_counts[contig],
+                        labels=labels,
+                        title=f"Filtered sites: {contig}",
+                        x_label="1Mb window",
+                        y_label="Site count",
+                        tick_stride=max(len(labels) // 12, 1),
+                    )
+                )
+
+            handle.write("<h2>Invariant sites per 1Mb window (window-count histogram)</h2>\n")
+            # Prefer invariant BED if present; fallback to .inv VCF counts.
+            for contig in contig_names:
+                if contig not in inv_counts:
+                    continue
+                inv_bed = str(_split_prefix(contig)) + ".inv.bed"
+                if Path(inv_bed).exists():
+                    _add_bed_counts(inv_bed, inv_counts, contig_lengths, window)
+                elif Path(inv_bed + ".gz").exists():
+                    _add_bed_counts(inv_bed + ".gz", inv_counts, contig_lengths, window)
+
+            for path in input.invs:
+                try:
+                    with _open_text(path) as f_in:
+                        for line in f_in:
+                            if not line or line.startswith("#"):
+                                continue
+                            parts = line.rstrip("\n").split("\t")
+                            if len(parts) < 2:
+                                continue
+                            contig = parts[0]
+                            if contig not in inv_counts:
+                                continue
+                            try:
+                                pos = int(parts[1])
+                            except ValueError:
+                                continue
+                            idx = _window_index(pos, window)
+                            if idx < len(inv_counts[contig]):
+                                inv_counts[contig][idx] += 1
+                except OSError as exc:
+                    handle.write(
+                        f"<p>Failed to read invariant sites from {html.escape(path)}: "
+                        f"{html.escape(str(exc))}</p>\n"
+                    )
+
+            for contig in contig_names:
+                if contig not in inv_counts:
+                    continue
+                counts, labels = _histogram(inv_counts[contig], bins=20)
+                handle.write(f"<h3>{html.escape(contig)}</h3>\n")
+                handle.write(
+                    _svg_bar_chart(
+                        counts,
+                        labels=labels,
+                        title=f"Invariant sites per 1Mb window: {contig}",
+                        x_label="Sites per 1Mb window",
+                        y_label="Number of windows",
+                        tick_stride=max(len(labels) // 12, 1),
+                    )
+                )
+
+            handle.write("<h2>Variable sites per 1Mb window (window-count histogram)</h2>\n")
+            for clean_path in input.cleans:
+                try:
+                    with _open_text(clean_path) as f_in:
+                        for line in f_in:
+                            if not line or line.startswith("#"):
+                                continue
+                            parts = line.rstrip("\n").split("\t")
+                            if len(parts) < 5:
+                                continue
+                            contig = parts[0]
+                            if contig not in variant_counts:
+                                continue
+                            if not _is_variant_alt(parts[4]):
+                                continue
+                            try:
+                                pos = int(parts[1])
+                            except ValueError:
+                                continue
+                            idx = _window_index(pos, window)
+                            if idx < len(variant_counts[contig]):
+                                variant_counts[contig][idx] += 1
+                except OSError as exc:
+                    handle.write(
+                        f"<p>Failed to read variable sites from {html.escape(clean_path)}: "
+                        f"{html.escape(str(exc))}</p>\n"
+                    )
+
+            for contig in contig_names:
+                if contig not in variant_counts:
+                    continue
+                counts, labels = _histogram(variant_counts[contig], bins=20)
+                handle.write(f"<h3>{html.escape(contig)}</h3>\n")
+                handle.write(
+                    _svg_bar_chart(
+                        counts,
+                        labels=labels,
+                        title=f"Variable sites per 1Mb window: {contig}",
+                        x_label="Sites per 1Mb window",
+                        y_label="Number of windows",
+                        tick_stride=max(len(labels) // 12, 1),
+                    )
+                )
+
+            handle.write("<h2>Warnings</h2>\n")
+            if warnings:
+                handle.write("<ul>\n")
+                for line in warnings:
+                    handle.write(f"<li>{html.escape(line)}</li>\n")
+                handle.write("</ul>\n")
+            else:
+                handle.write("<p>None found in logs</p>\n")
+
+            handle.write("</body>\n</html>\n")
 
 
 rule maf_to_gvcf:
