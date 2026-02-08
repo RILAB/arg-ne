@@ -129,3 +129,43 @@ def test_split_invariant_reference_block(tmp_path: Path):
     assert missing.exists()
     assert _count_vcf_records(inv) == 5
     assert _sum_bed(missing) == 0
+
+
+def test_split_alt_dot_requires_called_gt_for_inv(tmp_path: Path):
+    ref_fai = tmp_path / "ref.fa.fai"
+    ref_fai.write_text("1\t3\t0\t0\t0\n", encoding="utf-8")
+
+    gvcf = tmp_path / "in.gvcf"
+    gvcf.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\n"
+        "1\t1\t.\tA\t.\t.\t.\tDP=10\tGT\t.\n"
+        "1\t2\t.\tC\t.\t.\t.\tDP=10\tGT\t0\n",
+        encoding="utf-8",
+    )
+
+    prefix = tmp_path / "out"
+    _run(
+        [
+            sys.executable,
+            str(Path("scripts") / "split.py"),
+            "--depth",
+            "1",
+            "--out-prefix",
+            str(prefix),
+            "--fai",
+            str(ref_fai),
+            str(gvcf),
+        ],
+        cwd=Path.cwd(),
+    )
+
+    inv = tmp_path / "out.inv"
+    clean = tmp_path / "out.clean"
+
+    inv_records = _count_vcf_records(inv)
+    clean_records = _count_vcf_records(clean)
+
+    # ALT="." with GT="." should not be invariant; GT called should be invariant.
+    assert inv_records == 1
+    assert clean_records == 1

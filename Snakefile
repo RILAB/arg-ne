@@ -20,6 +20,7 @@ TASSEL_DIR = Path(config.get("tassel_dir", "tassel-5-standalone")).resolve()
 
 SAMPLE_SUFFIX = config.get("sample_suffix", "_anchorwave")
 FILL_GAPS = str(config.get("fill_gaps", "false")).lower()
+OUTPUT_JUST_GT = bool(config.get("outputJustGT", False))
 DROP_CUTOFF = config.get("drop_cutoff", "")
 FILTER_MULTIALLELIC = bool(config.get("filter_multiallelic", False))
 BGZIP_OUTPUT = bool(config.get("bgzip_output", False))
@@ -855,6 +856,7 @@ rule maf_to_gvcf:
         tassel_dir=str(TASSEL_DIR),
         sample_name=lambda wc: f"{wc.sample}{SAMPLE_SUFFIX}",
         fill_gaps=FILL_GAPS,
+        output_just_gt=OUTPUT_JUST_GT,
     shell:
         """
         set -euo pipefail
@@ -871,6 +873,7 @@ rule maf_to_gvcf:
           -sampleName "{params.sample_name}" \
           -gvcfOutput "$out_base" \
           -fillGaps "{params.fill_gaps}" \
+          -outputJustGT "{params.output_just_gt}" \
           > "{log}" 2>&1
         if [ -f "$out_base" ]; then
           bgzip -f -c "$out_base" > "{output.gvcf}"
