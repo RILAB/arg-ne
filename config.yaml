@@ -68,3 +68,6 @@ slurm_partition: high
 # Optional: normalize merged gVCFs with vt after GenotypeGVCFs
 # vt_normalize: false
 # vt_path: vt
+
+# Optional: choose merged gVCF generator
+merged_genotyper: "selectvariants"
