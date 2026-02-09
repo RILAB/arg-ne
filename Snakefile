@@ -30,12 +30,21 @@ GENOMICSDB_SEGMENT_SIZE = int(config.get("genomicsdb_segment_size", 1048576))
 MAF_TO_GVCF_THREADS = int(config.get("maf_to_gvcf_threads", 2))
 MAF_TO_GVCF_MEM_MB = int(config.get("maf_to_gvcf_mem_mb", 256000))
 MAF_TO_GVCF_TIME = str(config.get("maf_to_gvcf_time", "24:00:00"))
+MAF_TO_GVCF_JAVA_MEM_MB = max(256, int(MAF_TO_GVCF_MEM_MB * 0.9))
 MERGE_CONTIG_THREADS = int(config.get("merge_contig_threads", config.get("default_threads", 2)))
 MERGE_CONTIG_MEM_MB = int(config.get("merge_contig_mem_mb", config.get("default_mem_mb", 48000)))
+MERGE_CONTIG_JAVA_MEM_MB = max(256, int(MERGE_CONTIG_MEM_MB * 0.9))
 MERGE_CONTIG_TIME = str(config.get("merge_contig_time", config.get("default_time", "48:00:00")))
+DEFAULT_MEM_MB = int(config.get("default_mem_mb", 48000))
+DEFAULT_JAVA_MEM_MB = max(256, int(DEFAULT_MEM_MB * 0.9))
 PLOIDY = int(config.get("ploidy", 2))
 VT_NORMALIZE = bool(config.get("vt_normalize", False))
 VT_PATH = str(config.get("vt_path", "vt"))
+MERGED_GENOTYPER = str(config.get("merged_genotyper", "genotypegvcf")).lower()
+if MERGED_GENOTYPER not in {"genotypegvcf", "selectvariants"}:
+    raise ValueError(
+        f"merged_genotyper must be 'genotypegvcf' or 'selectvariants', got {MERGED_GENOTYPER!r}"
+    )
 
 REF_BASE = ORIG_REF_FASTA.name
 if REF_BASE.endswith(".gz"):
@@ -459,116 +468,6 @@ rule summary_report:
             parts.append("</svg>")
             return "\n".join(parts)
 
-        def _svg_bar_chart(
-            values: list[int],
-            labels: list[str] | None = None,
-            width: int = 900,
-            height: int = 240,
-            title: str | None = None,
-            x_label: str | None = None,
-            y_label: str | None = None,
-            tick_stride: int = 1,
-        ) -> str:
-            if not values:
-                return "<p>No data available.</p>"
-            safe_title = html.escape(title) if title else ""
-            max_val = max(values)
-            max_val = max_val if max_val > 0 else 1
-            margin = {"left": 60, "right": 20, "top": 30, "bottom": 50}
-            plot_w = width - margin["left"] - margin["right"]
-            plot_h = height - margin["top"] - margin["bottom"]
-            bar_w = plot_w / len(values)
-
-            parts = [
-                f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
-                'xmlns="http://www.w3.org/2000/svg" role="img">',
-                '<rect width="100%" height="100%" fill="white"/>',
-            ]
-            if title:
-                parts.append(
-                    f'<text x="{width/2}" y="20" text-anchor="middle" '
-                    f'font-size="14" font-family="sans-serif">{safe_title}</text>'
-                )
-            if y_label:
-                parts.append(
-                    f'<text x="16" y="{height/2}" text-anchor="middle" '
-                    f'font-size="12" font-family="sans-serif" '
-                    f'transform="rotate(-90 16 {height/2})">{html.escape(y_label)}</text>'
-                )
-            if x_label:
-                parts.append(
-                    f'<text x="{width/2}" y="{height-8}" text-anchor="middle" '
-                    f'font-size="12" font-family="sans-serif">{html.escape(x_label)}</text>'
-                )
-
-            x0 = margin["left"]
-            y0 = margin["top"] + plot_h
-            parts.append(
-                f'<line x1="{x0}" y1="{y0}" x2="{x0 + plot_w}" y2="{y0}" '
-                'stroke="#333" stroke-width="1"/>'
-            )
-            parts.append(
-                f'<line x1="{x0}" y1="{margin["top"]}" x2="{x0}" y2="{y0}" '
-                'stroke="#333" stroke-width="1"/>'
-            )
-            for i in range(5):
-                frac = i / 4
-                y = y0 - frac * plot_h
-                val = int(round(frac * max_val))
-                parts.append(
-                    f'<line x1="{x0 - 4}" y1="{y:.2f}" x2="{x0}" y2="{y:.2f}" '
-                    'stroke="#333" stroke-width="1"/>'
-                )
-                parts.append(
-                    f'<text x="{x0 - 8}" y="{y + 4:.2f}" text-anchor="end" '
-                    f'font-size="10" font-family="sans-serif">{val:,}</text>'
-                )
-
-            for i, val in enumerate(values):
-                bar_h = (val / max_val) * plot_h
-                x = x0 + i * bar_w
-                y = y0 - bar_h
-                parts.append(
-                    f'<rect x="{x:.2f}" y="{y:.2f}" width="{bar_w - 1:.2f}" '
-                    f'height="{bar_h:.2f}" fill="#4C78A8"/>'
-                )
-
-            if labels:
-                for i, label in enumerate(labels):
-                    if i % max(tick_stride, 1) != 0:
-                        continue
-                    x = x0 + (i + 0.5) * bar_w
-                    parts.append(
-                        f'<text x="{x:.2f}" y="{y0 + 14}" text-anchor="middle" '
-                        f'font-size="10" font-family="sans-serif" '
-                        f'transform="rotate(45 {x:.2f} {y0 + 14})">{html.escape(label)}</text>'
-                    )
-            parts.append("</svg>")
-            return "\n".join(parts)
-
-        def _histogram(values: list[int], bins: int = 20) -> tuple[list[int], list[str]]:
-            if not values:
-                return [], []
-            vmin = min(values)
-            vmax = max(values)
-            if vmax == vmin:
-                return [len(values)], [f"{vmin}"]
-            bins = max(1, bins)
-            width = max(1, (vmax - vmin + bins) // bins)
-            edges = list(range(vmin, vmax + width, width))
-            counts = [0 for _ in range(len(edges) - 1)]
-            for v in values:
-                idx = min((v - vmin) // width, len(counts) - 1)
-                counts[idx] += 1
-            labels = []
-            for i in range(len(counts)):
-                lo = edges[i]
-                hi = edges[i + 1] - 1
-                if i == len(counts) - 1:
-                    hi = edges[i + 1] - 1
-                labels.append(f"{lo}-{hi}")
-            return counts, labels
-
         jobs = [
             ("index_reference", [REF_FAI, REF_DICT]),
             ("rename_reference", [str(RENAMED_REF_FASTA)]),
@@ -877,7 +776,7 @@ rule maf_to_gvcf:
         if [[ "$out_base" == *.gz ]]; then
           out_base="${{out_base%.gz}}"
         fi
-        "{params.tassel_dir}/run_pipeline.pl" -Xmx256G -debug \
+        "{params.tassel_dir}/run_pipeline.pl" -Xmx{MAF_TO_GVCF_JAVA_MEM_MB}m -debug \
           -MAFToGVCFPlugin \
           -referenceFasta "{input.ref}" \
           -mafFile "{input.maf}" \
@@ -918,9 +817,9 @@ rule drop_sv:
         """
         set -euo pipefail
         if [ -n "{params.cutoff}" ]; then
-          python3 "{workflow.basedir}/scripts/dropSV.py" -d "{GVCF_DIR}" -c "{params.cutoff}"
+          python "{workflow.basedir}/scripts/dropSV.py" -d "{GVCF_DIR}" -c "{params.cutoff}"
         else
-          python3 "{workflow.basedir}/scripts/dropSV.py" -d "{GVCF_DIR}"
+          python "{workflow.basedir}/scripts/dropSV.py" -d "{GVCF_DIR}"
         fi
         """
 
@@ -941,7 +840,7 @@ rule split_gvcf_by_contig:
         set -euo pipefail
         mkdir -p "{GVCF_DIR}/cleangVCF/split_gvcf"
         tmp_vcf="{output.gvcf}.tmp.vcf"
-        gatk --java-options "-Xmx100g -Xms100g" SelectVariants \
+        gatk --java-options "-Xmx{DEFAULT_JAVA_MEM_MB}m -Xms{DEFAULT_JAVA_MEM_MB}m" SelectVariants \
           -R "{input.ref}" \
           -V "{input.gvcf}" \
           -L "{wildcards.contig}" \
@@ -979,20 +878,29 @@ if VT_NORMALIZE:
             """
             set -euo pipefail
             mkdir -p "{COMBINED_RAW_DIR}"
-            gatk --java-options "-Xmx100g -Xms100g" GenomicsDBImport \
+            gatk --java-options "-Xmx{MERGE_CONTIG_JAVA_MEM_MB}m -Xms{MERGE_CONTIG_JAVA_MEM_MB}m" GenomicsDBImport \
               {params.gvcf_args} \
               --genomicsdb-workspace-path "{output.workspace}" \
               -L "{wildcards.contig}" \
               --genomicsdb-vcf-buffer-size {params.vcf_buffer_size} \
               --genomicsdb-segment-size {params.segment_size}
-            gatk --java-options "-Xmx100g -Xms100g" GenotypeGVCFs \
-              -R "{input.ref}" \
-              -V "gendb://{output.workspace}" \
-              -O "{output.gvcf}" \
-              -L "{wildcards.contig}" \
-              --include-non-variant-sites \
-              --call-genotypes \
-              --sample-ploidy {PLOIDY}
+            if [ "{MERGED_GENOTYPER}" = "selectvariants" ]; then
+              gatk --java-options "-Xmx{MERGE_CONTIG_JAVA_MEM_MB}m -Xms{MERGE_CONTIG_JAVA_MEM_MB}m" SelectVariants \
+                -R "{input.ref}" \
+                -V "gendb://{output.workspace}" \
+                -O "{output.gvcf}" \
+                -L "{wildcards.contig}" \
+                --call-genotypes
+            else
+              gatk --java-options "-Xmx{MERGE_CONTIG_JAVA_MEM_MB}m -Xms{MERGE_CONTIG_JAVA_MEM_MB}m" GenotypeGVCFs \
+                -R "{input.ref}" \
+                -V "gendb://{output.workspace}" \
+                -O "{output.gvcf}" \
+                -L "{wildcards.contig}" \
+                --include-non-variant-sites \
+                --call-genotypes \
+                --sample-ploidy {PLOIDY}
+            fi
             """
 else:
     rule merge_contig:
@@ -1021,20 +929,29 @@ else:
             """
             set -euo pipefail
             mkdir -p "{COMBINED_DIR}"
-            gatk --java-options "-Xmx100g -Xms100g" GenomicsDBImport \
+            gatk --java-options "-Xmx{MERGE_CONTIG_JAVA_MEM_MB}m -Xms{MERGE_CONTIG_JAVA_MEM_MB}m" GenomicsDBImport \
               {params.gvcf_args} \
               --genomicsdb-workspace-path "{output.workspace}" \
               -L "{wildcards.contig}" \
               --genomicsdb-vcf-buffer-size {params.vcf_buffer_size} \
               --genomicsdb-segment-size {params.segment_size}
-            gatk --java-options "-Xmx100g -Xms100g" GenotypeGVCFs \
-              -R "{input.ref}" \
-              -V "gendb://{output.workspace}" \
-              -O "{output.gvcf}" \
-              -L "{wildcards.contig}" \
-              --include-non-variant-sites \
-              --call-genotypes \
-              --sample-ploidy {PLOIDY}
+            if [ "{MERGED_GENOTYPER}" = "selectvariants" ]; then
+              gatk --java-options "-Xmx{MERGE_CONTIG_JAVA_MEM_MB}m -Xms{MERGE_CONTIG_JAVA_MEM_MB}m" SelectVariants \
+                -R "{input.ref}" \
+                -V "gendb://{output.workspace}" \
+                -O "{output.gvcf}" \
+                -L "{wildcards.contig}" \
+                --call-genotypes
+            else
+              gatk --java-options "-Xmx{MERGE_CONTIG_JAVA_MEM_MB}m -Xms{MERGE_CONTIG_JAVA_MEM_MB}m" GenotypeGVCFs \
+                -R "{input.ref}" \
+                -V "gendb://{output.workspace}" \
+                -O "{output.gvcf}" \
+                -L "{wildcards.contig}" \
+                --include-non-variant-sites \
+                --call-genotypes \
+                --sample-ploidy {PLOIDY}
+            fi
             """
 
 
@@ -1077,7 +994,7 @@ rule split_gvcf:
         """
         set -euo pipefail
         mkdir -p "{RESULTS_DIR}/split"
-        cmd=(python3 "{workflow.basedir}/scripts/split.py" --depth="{params.depth}" --out-prefix "{params.out_prefix}" --fai "{input.ref_fai}")
+        cmd=(python "{workflow.basedir}/scripts/split.py" --depth="{params.depth}" --out-prefix "{params.out_prefix}" --fai "{input.ref_fai}")
         if [ "{params.filter_multiallelic}" = "True" ]; then
           cmd+=(--filter-multiallelic)
         fi
@@ -1103,7 +1020,7 @@ rule check_split_coverage:
     shell:
         """
         set -euo pipefail
-        python3 "{workflow.basedir}/scripts/check_split_coverage.py" \
+        python "{workflow.basedir}/scripts/check_split_coverage.py" \
           "{params.prefix}" \
           --fai "{input.fai}"
         """
@@ -1123,7 +1040,7 @@ rule mask_bed:
     shell:
         """
         set -euo pipefail
-        cmd=(python3 "{workflow.basedir}/scripts/filt_to_bed.py" "{params.prefix}")
+        cmd=(python "{workflow.basedir}/scripts/filt_to_bed.py" "{params.prefix}")
         cmd+=(--dropped-bed "{input.dropped}")
         if [ "{params.no_merge}" = "True" ]; then
           cmd+=(--no-merge)
@@ -1145,7 +1062,7 @@ rule make_accessibility:
     shell:
         """
         set -euo pipefail
-        python3 "{workflow.basedir}/scripts/build_accessibility.py" \
+        python "{workflow.basedir}/scripts/build_accessibility.py" \
           --clean "{input.clean}" \
           --inv "{input.inv}" \
           --fai "{input.fai}" \
