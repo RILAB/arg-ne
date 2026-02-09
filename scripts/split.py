@@ -282,7 +282,7 @@ def main() -> None:
         "--depth",
         type=int,
         required=True,
-        help="Depth threshold: DP < depth => filtered"
+        help="Depth threshold (ignored by this script)."
     )
     ap.add_argument(
         "--out-prefix",
@@ -557,8 +557,8 @@ def main() -> None:
             alts = [a.strip() for a in alt_field.split(",")] if alt_field != "." else []
             alts_no_nonref = [a for a in alts if a != "<NON_REF>"]
 
+            # Depth filtering disabled: DP is parsed only for downstream metadata.
             dp = extract_dp(info)
-            dp_low = (dp is not None and dp < depth)
             has_star = ("*" in alts_no_nonref)
             ref_long = (len(ref) > 1)
 
@@ -570,8 +570,7 @@ def main() -> None:
             )
 
             is_filtered = (
-                dp_low
-                or has_star
+                has_star
                 or ref_long
                 or (args.filter_multiallelic and multiple_valid_bases)
                 or has_non_acgt_nonstar
