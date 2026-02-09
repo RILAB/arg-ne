@@ -1,8 +1,33 @@
+import os
 import subprocess
 import shutil
 from pathlib import Path
 
 import pytest
+
+
+def _conda_exe() -> str:
+    return os.environ.get("CONDA_EXE") or "conda"
+
+
+def _conda_cmd(*args: str) -> list[str]:
+    return [_conda_exe(), "run", "-n", "argprep", *args]
+
+
+def _require_conda_tools(*tools: str):
+    if shutil.which(_conda_exe()) is None:
+        pytest.skip("conda not available")
+    missing = []
+    for tool in tools:
+        proc = subprocess.run(
+            _conda_cmd(tool, "--version"),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if proc.returncode != 0:
+            missing.append(tool)
+    if missing:
+        pytest.skip(f"Missing required tools in conda env argprep: {', '.join(missing)}")
 
 
 def _run(cmd, cwd=None):
@@ -21,7 +46,7 @@ def _write_vcf(path: Path):
 
 def _count_records(path: Path) -> int:
     count = 0
-    with subprocess.Popen(["bcftools", "view", "-H", str(path)], stdout=subprocess.PIPE, text=True) as proc:
+    with subprocess.Popen(_conda_cmd("bcftools", "view", "-H", str(path)), stdout=subprocess.PIPE, text=True) as proc:
         assert proc.stdout is not None
         for _ in proc.stdout:
             count += 1
@@ -29,25 +54,22 @@ def _count_records(path: Path) -> int:
 
 
 def test_drop_sv_filters_large_indel(tmp_path: Path):
-    if shutil.which("bcftools") is None:
-        pytest.skip("bcftools not available")
-    if shutil.which("bgzip") is None or shutil.which("tabix") is None:
-        pytest.skip("bgzip/tabix not available")
+    _require_conda_tools("bcftools", "bgzip", "tabix")
     vcf = tmp_path / "sample.gvcf"
     _write_vcf(vcf)
 
-    _run(["bgzip", "-f", str(vcf)])
+    _run(_conda_cmd("bgzip", "-f", str(vcf)))
     gvcf = tmp_path / "sample.gvcf.gz"
-    _run(["tabix", "-p", "vcf", str(gvcf)])
+    _run(_conda_cmd("tabix", "-p", "vcf", str(gvcf)))
 
-    _run([
+    _run(_conda_cmd(
         "python3",
         str(Path("scripts") / "dropSV.py"),
         "-d",
         str(tmp_path),
         "-c",
         "1",
-    ])
+    ))
 
     cleaned = tmp_path / "cleangVCF" / "sample.gvcf.gz"
     assert cleaned.exists()
