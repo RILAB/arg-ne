@@ -861,7 +861,7 @@ rule sanitize_split_gvcf:
         gvcf=lambda wc: str(_split_out(wc.gvcf_base, wc.contig)),
         tbi=lambda wc: str(_split_out(wc.gvcf_base, wc.contig)) + ".tbi",
     log:
-        str(LOG_DIR / "sanitize" / "{gvcf_base}.{contig}.log"),
+        str(Path("logs") / "sanitize" / "{gvcf_base}.{contig}.log"),
     output:
         gvcf=temp(str(GVCF_DIR / "cleangVCF" / "split_gvcf_sanitized" / "{gvcf_base}.{contig}.gvcf.gz")),
         tbi=temp(str(GVCF_DIR / "cleangVCF" / "split_gvcf_sanitized" / "{gvcf_base}.{contig}.gvcf.gz.tbi")),
@@ -869,7 +869,7 @@ rule sanitize_split_gvcf:
         """
         set -euo pipefail
         mkdir -p "{GVCF_DIR}/cleangVCF/split_gvcf_sanitized"
-        mkdir -p "{LOG_DIR}/sanitize"
+        mkdir -p "$(dirname "{log}")"
         before=$(bcftools view -H "{input.gvcf}" | wc -l | tr -d ' ')
         bcftools norm -d both -Oz -o "{output.gvcf}" "{input.gvcf}"
         tabix -f -p vcf "{output.gvcf}"
