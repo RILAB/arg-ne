@@ -277,11 +277,15 @@ def main() -> None:
         ib_intervals = overlap_intervals(inv_intervals, bed_intervals)
         report_lines = [
             f"ERROR: overlap detected for {chrom}: "
-            f"clean∩inv={overlap_ci}, clean∩filtered_bed={overlap_cb}, "
-            f"inv∩filtered_bed={overlap_ib}",
-            format_overlap_report(chrom, "clean∩inv", ci_intervals, clean, inv),
-            format_overlap_report(chrom, "clean∩filtered_bed", cb_intervals, clean, filtered_bed),
-            format_overlap_report(chrom, "inv∩filtered_bed", ib_intervals, inv, filtered_bed),
+            f"clean vs inv={overlap_ci}, clean vs filtered_bed={overlap_cb}, "
+            f"inv vs filtered_bed={overlap_ib}",
+            format_overlap_report(chrom, "clean vs inv", ci_intervals, clean, inv),
+            format_overlap_report(
+                chrom, "clean vs filtered_bed", cb_intervals, clean, filtered_bed
+            ),
+            format_overlap_report(
+                chrom, "inv vs filtered_bed", ib_intervals, inv, filtered_bed
+            ),
         ]
         sys.exit("\n".join(report_lines))
 

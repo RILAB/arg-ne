@@ -198,15 +198,8 @@ CONTIGS = _read_contigs()
 
 GVCF_BASES = [f"{sample}To{REF_BASE}" for sample in SAMPLES]
 
-
-def _default_depth():
-    depth_cfg = config.get("depth", None)
-    if depth_cfg is None or str(depth_cfg).strip() == "":
-        return max(1, len(SAMPLES))
-    return int(depth_cfg)
-
-
-DEPTH = _default_depth()
+# Depth is ignored by split.py but required by its CLI.
+DEPTH = 1
 
 
 def _gvcf_out(base):
