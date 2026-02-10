@@ -30,7 +30,6 @@ Edit `config.yaml` to point at your MAF directory and reference FASTA. At minimu
 
 - `maf_dir`: directory containing `*.maf` or `*.maf.gz`
 - `reference_fasta`: reference FASTA path (plain `.fa/.fasta` or bgzipped `.fa.gz`)
-- `depth`: depth cutoff for `split.py` (defaults to the number of MAF files)
 
 If your reference FASTA does **not** have an index (`.fai`), either create one (`samtools faidx`) or set `contigs:` explicitly in `config.yaml`.
 
@@ -58,7 +57,7 @@ Common options:
 - `-j <N>`: number of parallel jobs
 - `--rerun-incomplete`: clean up partial outputs
 - `--printshellcmds`: show executed commands
-- `--keep-temp`: keep temporary intermediates (see Notes)
+- `--notemp`: keep temporary intermediates (see Notes)
 
 ## Workflow Outputs
 
@@ -74,21 +73,48 @@ By default the workflow uses these locations (override in `config.yaml`):
 - `results/split/combined.<contig>.clean` : clean sites
 - `results/split/combined.<contig>.missing.bed` : missing positions
 - `results/split/combined.<contig>.filtered.bed` : merged mask bed
-- `results/summary.md` : markdown summary of jobs run, outputs created, and warnings
+- `results/split/combined.<contig>.accessible.npz` : boolean accessibility array (union of clean + invariant sites), for scikit-allel statistics
+- `results/summary.html` : HTML summary of jobs run, outputs created, and warnings
 
 ## Notes
 
-  - If `bgzip_output: true`, the `.inv`, `.filtered`, `.clean`, and `.missing.bed` files will have a `.gz` suffix.
-  - All gzipped outputs in this pipeline use bgzip (required for `tabix`).
+- If `bgzip_output: true`, the `.inv`, `.filtered`, `.clean`, and `.missing.bed` files will have a `.gz` suffix.
+- All gzipped outputs in this pipeline use bgzip (required for `tabix`).
 - `scripts/dropSV.py` removes indels larger than `drop_cutoff` (if set in `config.yaml`).
 - `scripts/split.py` supports `--filter-multiallelic` and `--bgzip-output` (toggle via `config.yaml`).
 - `scripts/filt_to_bed.py` merges `<prefix>.filtered`, `<prefix>.missing.bed`, and `dropped_indels.bed` into a final mask bed.
-- `no_merge: true` is for troubleshooting per-sample filtered regions only; it will likely break downstream steps because the combined mask bed is not merged.
+- `make_accessibility` builds a per-contig accessibility array from the union of `combined.<contig>.clean` and `combined.<contig>.inv` using the reference `.fai` to size the array. The output is a compressed NumPy archive containing a boolean array named `mask`, intended for scikit-allel statistics.
+- Warning: The workflow defaults to haploid genotyping (`ploidy: 1`) and has not been validated on diploid genome assemblies.
+- Optional: enable `vt_normalize: true` in `config.yaml` to normalize merged gVCFs with `vt normalize` after `SelectVariants`.
 - If GenomicsDBImport fails with a buffer-size error, increase `genomicsdb_vcf_buffer_size` and `genomicsdb_segment_size` in `config.yaml` (set them above your longest gVCF line length).
-- Large intermediate files are marked as temporary and removed after a successful run (per-sample gVCFs, cleaned gVCFs, per-contig split gVCFs, and the GenomicsDB workspace). Use `snakemake --keep-temp` if you want to preserve them for debugging or reruns.
+- Large intermediate files are marked as temporary and removed after a successful run (per-sample gVCFs, cleaned gVCFs, per-contig split gVCFs, and the GenomicsDB workspace). Use `snakemake --notemp` if you want to preserve them for debugging or reruns.
 - Resource knobs (memory/threads/time) and GenomicsDB buffer sizes are configurable in `config.yaml` (e.g., `merge_contig_mem_mb`, `maf_to_gvcf_*`, `genomicsdb_*`).
 - To cap the SLURM array concurrency for `scripts/maf_to_gvcf.sh`, set `maf_to_gvcf_array_max_jobs` in `config.yaml` (default 4).
 
-## Downstream ARG estimation
+## Changes since v0.1
+
+- Added HTML summary report with embedded SVG histograms and expanded output details.
+- Split logic tightened: clean sites now require all samples called; missing GTs are routed to filtered.
+- Invariant/filtered/clean outputs are enforced as mutually exclusive per position; filtered BED spans now respect END/REF lengths and subtract inv/clean.
+- Merged gVCFs are produced via GATK SelectVariants with genotype calling; TASSEL `outputJustGT` default set to `false` to retain likelihoods for calling.
+- Added accessibility mask generation (`combined.<contig>.accessible.npz`) for scikit‑allel workflows.
+- New/expanded validation and tests: split coverage checks, filtered‑bed tests, integration tests gated by `RUN_INTEGRATION=1`.
+- Example data regenerated via msprime with indels and missing data and AnchorWave‑style MAF formatting.
+- `check_split_coverage.py` now reports overlap intervals with file names to aid debugging.
+- `filt_to_bed.py` filters masks to the target contig, preventing cross‑contig lines in `combined.<contig>.filtered.bed`.
+- SLURM default resources now read `default_*` from `config.yaml` instead of hardcoded profile values.
+
+## Downstream Uses
+
+### ARG estimation
 
 Use Nate Pope's SINGER Snakemake [pipeline](https://github.com/nspope/singer-snakemake) with `combined.<contig>.clean` and `combined.<contig>.filtered.bed` as inputs.
+
+### Population genetic statistics 
+
+If you use scikit-allel, you can use the `combined.<contig>.clean` VCF and load the accessibility mask like this:
+
+```python
+import numpy as np
+mask = np.load("results/split/combined.1.accessible.npz")["mask"]
+```
