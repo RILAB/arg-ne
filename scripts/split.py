@@ -47,7 +47,6 @@ def build_provenance_headers(
     out_inv: str,
     out_filt: str,
     out_clean: str,
-    depth: int,
     bgzip_output: bool,
 ) -> list[str]:
     """
@@ -71,7 +70,6 @@ def build_provenance_headers(
         f"##output.inv={out_inv}",
         f"##output.filtered={out_filt}",
         f"##output.clean={out_clean}",
-        f"##parameters.depth_threshold={depth}",
         f"##parameters.bgzip_output={'true' if bgzip_output else 'false'}",
     ]
     lines.append(
@@ -279,12 +277,6 @@ def main() -> None:
         help="Input VCF (.vcf or .vcf.gz)"
     )
     ap.add_argument(
-        "--depth",
-        type=int,
-        required=True,
-        help="Depth threshold: DP < depth => filtered"
-    )
-    ap.add_argument(
         "--out-prefix",
         default=None,
         help="Output prefix (default: input filename without .vcf/.vcf.gz)"
@@ -302,7 +294,6 @@ def main() -> None:
     args = ap.parse_args()
 
     in_path = args.vcf
-    depth = args.depth
     contig_lengths = load_fai_lengths(args.fai) if args.fai else {}
 
     # ---------------- Output prefix logic ----------------
@@ -349,7 +340,6 @@ def main() -> None:
             out_inv=out_inv_final,
             out_filt=out_filt_final,
             out_clean=out_clean_final,
-            depth=depth,
             bgzip_output=bgzip_output,
         )
     
@@ -357,6 +347,40 @@ def main() -> None:
         last_report_time = time.time()
         last_chrom: str | None = None
         last_end: int | None = None
+        group: list[dict] = []
+        group_chrom: str | None = None
+        group_pos: int | None = None
+
+        def flush_group(records: list[dict]) -> None:
+            nonlocal inv_bp, filtered_bp, clean_bp, singer_reformat
+            if not records:
+                return
+            has_inv = any(r["is_inv"] for r in records)
+            has_filtered = any(r["is_filtered"] for r in records)
+            has_missing_gt = any(r["has_missing_gt"] for r in records)
+            if has_inv:
+                for r in records:
+                    f_inv.write(r["line"] + "\n")
+                    inv_bp += 1
+                records.clear()
+                return
+            if has_filtered or has_missing_gt:
+                for r in records:
+                    f_filt.write(r["line"] + "\n")
+                    filtered_bp += 1
+                records.clear()
+                return
+            for r in records:
+                if singer_reformat is None:
+                    singer_reformat = needs_singer_reformat(r["cols"][8], r["cols"][9:])
+                    if singer_reformat:
+                        sys.stderr.write("Reformatting .clean output for SINGER based on AD fields.\n")
+                if singer_reformat:
+                    f_clean.write(format_for_singer(r["cols"]))
+                else:
+                    f_clean.write(r["line"] + "\n")
+                clean_bp += 1
+            records.clear()
         for raw in fin:
             record_count += 1
             # Periodic progress line to stderr for large files.
@@ -486,11 +510,13 @@ def main() -> None:
             info = cols[7]
 
             # ============================================================
-            # 1) .inv (highest priority): INFO == '.' OR contains END=
+            # 1) .inv (highest priority): ALT="." (reference) OR contains END=
             # If END= exists, expand across POS..END inclusive.
             # ============================================================
             end_val = extract_end(info)
-            if info == "." or end_val is not None:
+            if end_val is not None:
+                # Flush any buffered records at the previous position.
+                flush_group(group)
                 if end_val is None:
                     f_inv.write(line + "\n")
                     inv_bp += 1
@@ -521,8 +547,8 @@ def main() -> None:
             alts = [a.strip() for a in alt_field.split(",")] if alt_field != "." else []
             alts_no_nonref = [a for a in alts if a != "<NON_REF>"]
 
+            # Depth filtering disabled: DP is parsed only for downstream metadata.
             dp = extract_dp(info)
-            dp_low = (dp is not None and dp < depth)
             has_star = ("*" in alts_no_nonref)
             ref_long = (len(ref) > 1)
 
@@ -533,29 +559,36 @@ def main() -> None:
                 (a not in VALID_BASES) and (a != "*") for a in alts_no_nonref
             )
 
-            if ( 
-                dp_low or 
-                has_star or 
-                ref_long or 
-                (args.filter_multiallelic and multiple_valid_bases) or
-                has_non_acgt_nonstar):
-                f_filt.write(line + "\n")
-                filtered_bp += 1
-                continue
+            is_filtered = (
+                has_star
+                or ref_long
+                or (args.filter_multiallelic and multiple_valid_bases)
+                or has_non_acgt_nonstar
+            )
+            # Treat ALT="." (gVCF-style invariant records) as invariant.
+            is_inv = (alt_field == ".")
 
-            # ============================================================
-            # 3) .clean
-            # ============================================================
-            if singer_reformat is None:
-                singer_reformat = needs_singer_reformat(cols[8], cols[9:])
-                if singer_reformat:
-                    sys.stderr.write("Reformatting .clean output for SINGER based on AD fields.\n")
+            # Group by chrom/pos to enforce mutual exclusivity.
+            if group_pos is None:
+                group_chrom = chrom
+                group_pos = int(cols[1])
+            if chrom != group_chrom or int(cols[1]) != group_pos:
+                flush_group(group)
+                group_chrom = chrom
+                group_pos = int(cols[1])
+            gts = [c.split(":", 1)[0] for c in cols[9:]] if len(cols) > 9 else ["."]
+            has_missing_gt = any(gt == "." for gt in gts)
+            group.append(
+                {
+                    "line": line,
+                    "cols": cols,
+                    "is_inv": is_inv,
+                    "is_filtered": is_filtered,
+                    "has_missing_gt": has_missing_gt,
+                }
+            )
 
-            if singer_reformat:
-                f_clean.write(format_for_singer(cols))
-            else:
-                f_clean.write(line + "\n")
-            clean_bp += 1
+        flush_group(group)
 
         print("Output summary (non-header bp):",file=sys.stderr)
         print(f"  inv:      {inv_bp:,}",file=sys.stderr)
