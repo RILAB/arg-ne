@@ -180,6 +180,48 @@ def overlap_bp(a: List[Tuple[int, int]], b: List[Tuple[int, int]]) -> int:
     return total
 
 
+def overlap_intervals(
+    a: List[Tuple[int, int]], b: List[Tuple[int, int]]
+) -> List[Tuple[int, int]]:
+    i = j = 0
+    overlaps: List[Tuple[int, int]] = []
+    a = merge_intervals(a)
+    b = merge_intervals(b)
+    while i < len(a) and j < len(b):
+        a_s, a_e = a[i]
+        b_s, b_e = b[j]
+        if a_e <= b_s:
+            i += 1
+            continue
+        if b_e <= a_s:
+            j += 1
+            continue
+        start = max(a_s, b_s)
+        end = min(a_e, b_e)
+        if end > start:
+            overlaps.append((start, end))
+        if a_e <= b_e:
+            i += 1
+        else:
+            j += 1
+    return overlaps
+
+
+def format_overlap_report(
+    chrom: str, label: str, overlaps: List[Tuple[int, int]], max_show: int = 20
+) -> str:
+    count = len(overlaps)
+    if count == 0:
+        return f"{label}: 0 overlaps"
+    show = overlaps[:max_show]
+    lines = [f"{label}: {count} overlap intervals (showing up to {max_show})"]
+    for start, end in show:
+        lines.append(f"  {chrom}:{start}-{end}")
+    if count > max_show:
+        lines.append(f"  ... {count - max_show} more")
+    return "\n".join(lines)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Check split coverage against reference length.")
     ap.add_argument("prefix", help="Prefix for split outputs (e.g., results/split/combined.1)")
@@ -222,11 +264,18 @@ def main() -> None:
     overlap_cb = overlap_bp(clean_intervals, bed_intervals)
     overlap_ib = overlap_bp(inv_intervals, bed_intervals)
     if overlap_ci or overlap_cb or overlap_ib:
-        sys.exit(
+        ci_intervals = overlap_intervals(clean_intervals, inv_intervals)
+        cb_intervals = overlap_intervals(clean_intervals, bed_intervals)
+        ib_intervals = overlap_intervals(inv_intervals, bed_intervals)
+        report_lines = [
             f"ERROR: overlap detected for {chrom}: "
             f"clean∩inv={overlap_ci}, clean∩filtered_bed={overlap_cb}, "
-            f"inv∩filtered_bed={overlap_ib}"
-        )
+            f"inv∩filtered_bed={overlap_ib}",
+            format_overlap_report(chrom, "clean∩inv", ci_intervals),
+            format_overlap_report(chrom, "clean∩filtered_bed", cb_intervals),
+            format_overlap_report(chrom, "inv∩filtered_bed", ib_intervals),
+        ]
+        sys.exit("\n".join(report_lines))
 
     merged = merge_intervals(clean_intervals + inv_intervals + bed_intervals)
     total = sum(e - s for s, e in merged)
