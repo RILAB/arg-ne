@@ -1,6 +1,6 @@
 # Paths
 maf_dir: example_data
-reference_fasta: example_data/ref.fa
+reference_fasta: example_data/b73.fa
 
 # Output locations
 gvcf_dir: gvcf
@@ -47,18 +47,18 @@ genomicsdb_segment_size: 10485760
 
 # Default SLURM resources (used by the provided profile)
 default_threads: 2
-default_mem_mb: 48000
+default_mem_mb: 20000
 default_time: "48:00:00"
 slurm_account: jrigrp
 slurm_partition: high
 
 # Rule-specific resources
 # maf_to_gvcf_threads: 2
-# maf_to_gvcf_mem_mb: 256000
+maf_to_gvcf_mem_mb: 25600
 # maf_to_gvcf_time: "24:00:00"
 # merge_contig_threads: 2
 # merge_contig_time: "48:00:00"
-# merge_contig_mem_mb: 256000
+merge_contig_mem_mb: 25600
 
 # Optional: normalize merged gVCFs with vt after GenotypeGVCFs
 # vt_normalize: false
