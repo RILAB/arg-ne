@@ -13,5 +13,5 @@ latency-wait: 60
 # Default resources for rules that don't define them explicitly.
 # Override per-rule by adding resources in the Snakefile.
 default-resources:
-  - mem_mb={config[default_mem_mb]}
-  - time={config[default_time]}
+  - mem_mb=20000
+  - time=2880
