@@ -38,12 +38,29 @@ def _read_maf_contigs(maf_dir: Path) -> set[str]:
             else:
                 handle = maf.open("r", encoding="utf-8")
             with handle:
+                first_src = None
                 for line in handle:
                     if not line or line.startswith("#"):
                         continue
-                    parts = line.split()
-                    if parts and parts[0] == "s" and len(parts) >= 2:
-                        contigs.add(parts[1])
+                    stripped = line.strip()
+                    if not stripped:
+                        if first_src is not None:
+                            contigs.add(first_src)
+                            first_src = None
+                        continue
+                    parts = stripped.split()
+                    if not parts:
+                        continue
+                    if parts[0] == "a":
+                        if first_src is not None:
+                            contigs.add(first_src)
+                        first_src = None
+                        continue
+                    if parts[0] == "s" and len(parts) >= 2 and first_src is None:
+                        # Use the first sequence source per alignment block (reference-side in our MAFs).
+                        first_src = parts[1]
+                if first_src is not None:
+                    contigs.add(first_src)
         except OSError:
             continue
     return contigs

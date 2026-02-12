@@ -198,37 +198,14 @@ def needs_singer_reformat(format_field: str, sample_fields: list[str]) -> bool:
 
 def format_for_singer(cols: list[str]) -> str:
     """
-    Convert a .clean record to a SINGER-style format with GT only.
-    Uses AD to infer genotype: ref-depth==0 -> 1, else 0.
+    For SINGER compatibility, remove <NON_REF> from ALT while preserving
+    original sample genotype fields.
     """
-    format_field = cols[8]
-    format_keys = format_field.split(":")
-    try:
-        ad_idx = format_keys.index("AD")
-    except ValueError:
-        ad_idx = None
-
-    allele_str = ""
-    non_missing = 0
-    for sample in cols[9:]:
-        allele = "."
-        if sample not in (".", "./.", ".|."):
-            parts = sample.split(":")
-            if ad_idx is not None and ad_idx < len(parts):
-                ad_field = parts[ad_idx]
-                ref_read_depth = ad_field.split(",")[0] if ad_field not in (".", "") else "."
-                if ref_read_depth != ".":
-                    allele = "1" if ref_read_depth == "0" else "0"
-        if allele != ".":
-            non_missing += 1
-        allele_str += "\t" + allele
-
-    chrom, pos = cols[0], cols[1]
-    id_field = f"snp_{chrom}_{pos}"
-    alt = cols[4].replace(",<NON_REF>", "")
-    core = "\t".join([chrom, pos, id_field, cols[3], alt])
-    info = "\t".join([cols[5], cols[6], _update_info_dp(cols[7], non_missing)]) + "\tGT"
-    return f"{core}\t{info}{allele_str}\n"
+    out = list(cols)
+    alts = [a for a in out[4].split(",") if a and a != "<NON_REF>"]
+    if alts:
+        out[4] = ",".join(alts)
+    return "\t".join(out) + "\n"
 
 
 def _update_info_dp(info: str, dp: int) -> str:
@@ -565,8 +542,8 @@ def main() -> None:
                 or (args.filter_multiallelic and multiple_valid_bases)
                 or has_non_acgt_nonstar
             )
-            # Treat ALT="." (gVCF-style invariant records) as invariant.
-            is_inv = (alt_field == ".")
+            # Treat ALT="." or ALT="<NON_REF>"-only (gVCF-style invariant records) as invariant.
+            is_inv = (alt_field == ".") or (len(alts) > 0 and len(alts_no_nonref) == 0)
 
             # Group by chrom/pos to enforce mutual exclusivity.
             if group_pos is None:
