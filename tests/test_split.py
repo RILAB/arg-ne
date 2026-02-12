@@ -52,7 +52,7 @@ def test_split_missing_with_fai(tmp_path: Path):
     assert _sum_bed(missing) == 6
 
 
-def test_singer_dp_rewrite(tmp_path: Path):
+def test_singer_keeps_genotypes_and_strips_nonref_alt(tmp_path: Path):
     ref_fai = tmp_path / "ref.fa.fai"
     ref_fai.write_text("1\t5\t0\t0\t0\n", encoding="utf-8")
 
@@ -60,7 +60,7 @@ def test_singer_dp_rewrite(tmp_path: Path):
     gvcf.write_text(
         "##fileformat=VCFv4.2\n"
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2\tS3\n"
-        "1\t2\t.\tA\tG\t.\t.\tDP=30\tGT:AD\t0/1:0,1\t./.:.\t0/0:1,0\n",
+        "1\t2\t.\tA\tG,<NON_REF>\t.\t.\tDP=30\tGT:AD\t0/1:0,1\t./.:.\t0/0:1,0\n",
         encoding="utf-8",
     )
 
@@ -80,9 +80,11 @@ def test_singer_dp_rewrite(tmp_path: Path):
 
     clean = tmp_path / "out.clean"
     line = [l for l in clean.read_text(encoding="utf-8").splitlines() if not l.startswith("#")][0]
-    info = line.split("\t")[7]
-    # Two non-missing samples -> DP=2
-    assert "DP=2" in info
+    parts = line.split("\t")
+    # ALT should drop <NON_REF>, but genotype/sample fields should be preserved.
+    assert parts[4] == "G"
+    assert parts[8] == "GT:AD"
+    assert parts[9:] == ["0/1:0,1", "./.:.", "0/0:1,0"]
 
 
 def _count_vcf_records(path: Path) -> int:
@@ -125,7 +127,7 @@ def test_split_invariant_reference_block(tmp_path: Path):
     assert _sum_bed(missing) == 0
 
 
-def test_split_alt_dot_requires_called_gt_for_inv(tmp_path: Path):
+def test_split_alt_dot_and_nonref_only_are_invariant(tmp_path: Path):
     ref_fai = tmp_path / "ref.fa.fai"
     ref_fai.write_text("1\t3\t0\t0\t0\n", encoding="utf-8")
 
@@ -134,7 +136,8 @@ def test_split_alt_dot_requires_called_gt_for_inv(tmp_path: Path):
         "##fileformat=VCFv4.2\n"
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\n"
         "1\t1\t.\tA\t.\t.\t.\tDP=10\tGT\t.\n"
-        "1\t2\t.\tC\t.\t.\t.\tDP=10\tGT\t0\n",
+        "1\t2\t.\tC\t.\t.\t.\tDP=10\tGT\t0\n"
+        "1\t3\t.\tG\t<NON_REF>\t.\t.\tDP=10\tGT\t0\n",
         encoding="utf-8",
     )
 
@@ -158,6 +161,6 @@ def test_split_alt_dot_requires_called_gt_for_inv(tmp_path: Path):
     inv_records = _count_vcf_records(inv)
     clean_records = _count_vcf_records(clean)
 
-    # ALT="." records are invariant regardless of GT in current logic.
-    assert inv_records == 2
+    # ALT="." and ALT="<NON_REF>"-only records are invariant in current logic.
+    assert inv_records == 3
     assert clean_records == 0
