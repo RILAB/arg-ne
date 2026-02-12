@@ -105,6 +105,17 @@ By default the workflow uses these locations (override in `config.yaml`):
 - `filt_to_bed.py` filters masks to the target contig, preventing cross‑contig lines in `combined.<contig>.filtered.bed`.
 - SLURM default resources now read `default_*` from `config.yaml` instead of hardcoded profile values.
 
+## Changes since v0.2
+
+- Moved HTML summary generation into `scripts/summary_report.py` and simplified `Snakefile`.
+- Corrected example MAF inputs so `example_data/*.maf.gz` are valid gzip files.
+- Updated split classification so `ALT=<NON_REF>`-only records are treated as invariant.
+- Updated SINGER clean-output formatting to strip `<NON_REF>` while preserving genotype/sample fields.
+- Added `logic.md` with detailed site-routing/filtering logic and concrete examples.
+- Added `results/split/combined.<contig>.coverage.txt` to documented workflow outputs.
+- Added split-test coverage for invariant/nonref and genotype-preserving clean formatting.
+- Updated SLURM profile default resources to numeric values to avoid resource conversion/submission errors.
+
 ## Downstream Uses
 
 ### ARG estimation
