@@ -41,6 +41,8 @@ VT_NORMALIZE = bool(config.get("vt_normalize", False))
 VT_PATH = str(config.get("vt_path", "vt"))
 MERGED_GENOTYPER = "selectvariants"
 
+workflow.global_resources["merge_gvcf_jobs"] = int(config.get("merge_gvcf_max_jobs", 4))
+
 REF_BASE = ORIG_REF_FASTA.name
 if REF_BASE.endswith(".gz"):
     REF_BASE = REF_BASE[: -len(".gz")]
@@ -474,6 +476,7 @@ if VT_NORMALIZE:
         resources:
             mem_mb=MERGE_CONTIG_MEM_MB,
             time=MERGE_CONTIG_TIME,
+            merge_gvcf_jobs=1,
         input:
             gvcfs=lambda wc: [str(_split_out(b, wc.contig)) for b in GVCF_BASES],
             tbis=lambda wc: [str(_split_out(b, wc.contig)) + ".tbi" for b in GVCF_BASES],
@@ -514,6 +517,7 @@ else:
         resources:
             mem_mb=MERGE_CONTIG_MEM_MB,
             time=MERGE_CONTIG_TIME,
+            merge_gvcf_jobs=1,
         input:
             gvcfs=lambda wc: [str(_split_out(b, wc.contig)) for b in GVCF_BASES],
             tbis=lambda wc: [str(_split_out(b, wc.contig)) + ".tbi" for b in GVCF_BASES],
