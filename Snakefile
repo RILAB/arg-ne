@@ -215,6 +215,10 @@ def _split_out(base, contig):
     return GVCF_DIR / "cleangVCF" / "split_gvcf" / f"{base}.{contig}.gvcf.gz"
 
 
+def _split_status_out(base, contig):
+    return GVCF_DIR / "cleangVCF" / "split_gvcf" / f"{base}.{contig}.status.tsv"
+
+
 def _combined_out(contig):
     return COMBINED_DIR / f"combined.{contig}.gvcf.gz"
 
@@ -363,6 +367,11 @@ rule summary_report:
         temp_paths=sorted(_summary_temp_paths()),
         arg_outputs=_summary_arg_outputs(),
         split_prefixes={str(c): str(_split_prefix(c)) for c in CONTIGS},
+        split_status_files=[
+            str(_split_status_out(base, contig))
+            for contig in CONTIGS
+            for base in GVCF_BASES
+        ],
     script:
         "scripts/summary_report.py"
 
@@ -453,18 +462,33 @@ rule split_gvcf_by_contig:
     output:
         gvcf=temp(str(GVCF_DIR / "cleangVCF" / "split_gvcf" / "{gvcf_base}.{contig}.gvcf.gz")),
         tbi=temp(str(GVCF_DIR / "cleangVCF" / "split_gvcf" / "{gvcf_base}.{contig}.gvcf.gz.tbi")),
+        status=str(GVCF_DIR / "cleangVCF" / "split_gvcf" / "{gvcf_base}.{contig}.status.tsv"),
     shell:
         """
         set -euo pipefail
         mkdir -p "{GVCF_DIR}/cleangVCF/split_gvcf"
         tmp_vcf="{output.gvcf}.tmp.vcf"
-        gatk --java-options "-Xmx{DEFAULT_JAVA_MEM_MB}m -Xms{DEFAULT_JAVA_MEM_MB}m" SelectVariants \
-          -R "{input.ref}" \
-          -V "{input.gvcf}" \
-          -L "{wildcards.contig}" \
-          -O "$tmp_vcf"
-        bgzip -f -c "$tmp_vcf" > "{output.gvcf}"
-        rm -f "$tmp_vcf"
+        if bcftools index -s "{input.gvcf}" | cut -f1 | grep -Fxq "{wildcards.contig}"; then
+          gatk --java-options "-Xmx{DEFAULT_JAVA_MEM_MB}m -Xms{DEFAULT_JAVA_MEM_MB}m" SelectVariants \
+            -R "{input.ref}" \
+            -V "{input.gvcf}" \
+            -L "{wildcards.contig}" \
+            -O "$tmp_vcf"
+          bgzip -f -c "$tmp_vcf" > "{output.gvcf}"
+          rm -f "$tmp_vcf"
+          printf "{wildcards.gvcf_base}\t{wildcards.contig}\tpresent\n" > "{output.status}"
+        else
+          sample_name="$(bcftools query -l "{input.gvcf}" | head -n 1)"
+          {{
+            printf "##fileformat=VCFv4.2\n"
+            printf "##contig=<ID={wildcards.contig}>\n"
+            printf "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t%s\n" "$sample_name"
+          }} > "$tmp_vcf"
+          bgzip -f -c "$tmp_vcf" > "{output.gvcf}"
+          rm -f "$tmp_vcf"
+          printf "{wildcards.gvcf_base}\t{wildcards.contig}\tmissing\n" > "{output.status}"
+          echo "WARNING: Contig {wildcards.contig} not found in {input.gvcf}; writing empty split gVCF placeholder." >&2
+        fi
         tabix -f -p vcf "{output.gvcf}"
         """
 
