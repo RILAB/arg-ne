@@ -116,6 +116,7 @@ By default the workflow uses these locations (override in `config.yaml`):
 - Added `results/split/combined.<contig>.coverage.txt` to documented workflow outputs.
 - Added split-test coverage for invariant/nonref and genotype-preserving clean formatting.
 - Updated SLURM profile default resources to numeric values to avoid resource conversion/submission errors.
+- Added merge_gvcf_max_jobs pipeline concurrency control
 
 ## Downstream Uses
 
