@@ -229,6 +229,7 @@ jobs = [(str(job), [str(p) for p in outputs]) for job, outputs in snakemake.para
 temp_paths = set(str(p) for p in snakemake.params.temp_paths)
 arg_outputs = [str(p) for p in snakemake.params.arg_outputs]
 split_prefixes = {str(k): str(v) for k, v in dict(snakemake.params.split_prefixes).items()}
+split_status_files = [str(p) for p in snakemake.params.split_status_files]
 
 warnings = []
 log_paths = []
@@ -262,6 +263,32 @@ try:
         )
 except Exception as exc:
     warnings.append(f"WARNING: Failed to compare MAF vs reference contigs: {exc}")
+
+missing_contigs_by_gvcf: dict[str, list[str]] = {}
+for status_path in split_status_files:
+    try:
+        with open(status_path, "r", encoding="utf-8") as handle:
+            line = handle.readline().strip()
+    except OSError:
+        continue
+    if not line:
+        continue
+    parts = line.split("\t")
+    if len(parts) != 3:
+        continue
+    gvcf_base, contig, status = parts
+    if status.strip().lower() == "missing":
+        missing_contigs_by_gvcf.setdefault(gvcf_base, []).append(contig)
+
+for gvcf_base in sorted(missing_contigs_by_gvcf):
+    missing = sorted(set(missing_contigs_by_gvcf[gvcf_base]))
+    if not missing:
+        continue
+    preview = ", ".join(missing[:10])
+    extra = f" (+{len(missing) - 10} more)" if len(missing) > 10 else ""
+    warnings.append(
+        f"WARNING: gVCF {gvcf_base}.gvcf.gz is missing configured contigs: {preview}{extra}"
+    )
 
 with report_path.open("w", encoding="utf-8") as handle:
     handle.write("<!doctype html>\n")

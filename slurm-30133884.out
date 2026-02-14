@@ -1,0 +1,156 @@
+############### Job 30133884 prolog ###############
+SLURM_NODELIST: cpu-6-91
+############### Job 30133884 prolog ###############
+host: cpu-6-91
+Building DAG of jobs...
+Using shell: /usr/bin/bash
+Provided cores: 2
+Rules claiming more threads will be scaled down.
+Provided resources: merge_gvcf_jobs=Resource("merge_gvcf_jobs", 4)
+Select jobs to execute...
+Execute 1 jobs...
+
+[Sat Feb 14 12:39:02 2026]
+localrule split_gvcf_by_contig:
+    input: /home/jri/src/argprep/gvcf/cleangVCF/AM02390ToAhypochondriacus_v3.softmasked.gvcf.gz, /home/jri/src/argprep/results/refs/reference_gvcf.fa, /home/jri/src/argprep/results/refs/reference_gvcf.fa.fai, /home/jri/src/argprep/results/refs/reference_gvcf.dict, /home/jri/src/argprep/gvcf/cleangVCF/dropped_indels.bed
+    output: /home/jri/src/argprep/gvcf/cleangVCF/split_gvcf/AM02390ToAhypochondriacus_v3.softmasked.scaffold_128.gvcf.gz, /home/jri/src/argprep/gvcf/cleangVCF/split_gvcf/AM02390ToAhypochondriacus_v3.softmasked.scaffold_128.gvcf.gz.tbi
+    jobid: 0
+    reason: Forced execution
+    wildcards: gvcf_base=AM02390ToAhypochondriacus_v3.softmasked, contig=scaffold_128
+    resources: tmpdir=/tmp, mem_mb=20000, mem=20 GB, mem_mib=19074, disk_mb=1000, disk=1 GB, disk_mib=954, time=2880
+Using GATK jar /home/jri/.conda/envs/argprep/share/gatk4-4.6.2.0-0/gatk-package-4.6.2.0-local.jar
+Running:
+    java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true -Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 -Xmx43200m -Xms43200m -jar /home/jri/.conda/envs/argprep/share/gatk4-4.6.2.0-0/gatk-package-4.6.2.0-local.jar SelectVariants -R /home/jri/src/argprep/results/refs/reference_gvcf.fa -V /home/jri/src/argprep/gvcf/cleangVCF/AM02390ToAhypochondriacus_v3.softmasked.gvcf.gz -L scaffold_128 -O /home/jri/src/argprep/gvcf/cleangVCF/split_gvcf/AM02390ToAhypochondriacus_v3.softmasked.scaffold_128.gvcf.gz.tmp.vcf
+12:39:06.621 INFO  NativeLibraryLoader - Loading libgkl_compression.so from jar:file:/home/jri/.conda/envs/argprep/share/gatk4-4.6.2.0-0/gatk-package-4.6.2.0-local.jar!/com/intel/gkl/native/libgkl_compression.so
+12:39:06.910 INFO  SelectVariants - ------------------------------------------------------------
+12:39:06.926 INFO  SelectVariants - The Genome Analysis Toolkit (GATK) v4.6.2.0
+12:39:06.927 INFO  SelectVariants - For support and documentation go to https://software.broadinstitute.org/gatk/
+12:39:06.927 INFO  SelectVariants - Executing as jri@cpu-6-91 on Linux v6.5.0-45-generic amd64
+12:39:06.927 INFO  SelectVariants - Java runtime: OpenJDK 64-Bit Server VM v17.0.17-internal+0-adhoc..src
+12:39:06.928 INFO  SelectVariants - Start Date/Time: February 14, 2026 at 12:39:06 PM PST
+12:39:06.928 INFO  SelectVariants - ------------------------------------------------------------
+12:39:06.928 INFO  SelectVariants - ------------------------------------------------------------
+12:39:06.931 INFO  SelectVariants - HTSJDK Version: 4.2.0
+12:39:06.931 INFO  SelectVariants - Picard Version: 3.4.0
+12:39:06.931 INFO  SelectVariants - Built for Spark Version: 3.5.0
+12:39:06.936 INFO  SelectVariants - HTSJDK Defaults.COMPRESSION_LEVEL : 2
+12:39:06.936 INFO  SelectVariants - HTSJDK Defaults.USE_ASYNC_IO_READ_FOR_SAMTOOLS : false
+12:39:06.936 INFO  SelectVariants - HTSJDK Defaults.USE_ASYNC_IO_WRITE_FOR_SAMTOOLS : true
+12:39:06.937 INFO  SelectVariants - HTSJDK Defaults.USE_ASYNC_IO_WRITE_FOR_TRIBBLE : false
+12:39:06.937 INFO  SelectVariants - Deflater: IntelDeflater
+12:39:06.937 INFO  SelectVariants - Inflater: IntelInflater
+12:39:06.938 INFO  SelectVariants - GCS max retries/reopens: 20
+12:39:06.938 INFO  SelectVariants - Requester pays: disabled
+12:39:06.938 INFO  SelectVariants - Initializing engine
+12:39:07.304 INFO  FeatureManager - Using codec VCFCodec to read file file:///home/jri/src/argprep/gvcf/cleangVCF/AM02390ToAhypochondriacus_v3.softmasked.gvcf.gz
+12:39:07.414 INFO  SelectVariants - Shutting down engine
+[February 14, 2026 at 12:39:07 PM PST] org.broadinstitute.hellbender.tools.walkers.variantutils.SelectVariants done. Elapsed time: 0.02 minutes.
+Runtime.totalMemory()=45298483200
+***********************************************************************
+
+A USER ERROR has occurred: Badly formed genome unclippedLoc: Query interval "scaffold_128" is not valid for this input.
+
+***********************************************************************
+Set the system property GATK_STACKTRACE_ON_USER_EXCEPTION (--java-options '-DGATK_STACKTRACE_ON_USER_EXCEPTION=true') to print the stack trace.
+RuleException:
+CalledProcessError in file "/home/jri/src/argprep/Snakefile", line 457:
+Command 'set -euo pipefail;  
+        set -euo pipefail
+        mkdir -p "/home/jri/src/argprep/gvcf/cleangVCF/split_gvcf"
+        tmp_vcf="/home/jri/src/argprep/gvcf/cleangVCF/split_gvcf/AM02390ToAhypochondriacus_v3.softmasked.scaffold_128.gvcf.gz.tmp.vcf"
+        gatk --java-options "-Xmx43200m -Xms43200m" SelectVariants           -R "/home/jri/src/argprep/results/refs/reference_gvcf.fa"           -V "/home/jri/src/argprep/gvcf/cleangVCF/AM02390ToAhypochondriacus_v3.softmasked.gvcf.gz"           -L "scaffold_128"           -O "$tmp_vcf"
+        bgzip -f -c "$tmp_vcf" > "/home/jri/src/argprep/gvcf/cleangVCF/split_gvcf/AM02390ToAhypochondriacus_v3.softmasked.scaffold_128.gvcf.gz"
+        rm -f "$tmp_vcf"
+        tabix -f -p vcf "/home/jri/src/argprep/gvcf/cleangVCF/split_gvcf/AM02390ToAhypochondriacus_v3.softmasked.scaffold_128.gvcf.gz"' returned non-zero exit status 2.
+[Sat Feb 14 12:39:07 2026]
+Error in rule split_gvcf_by_contig:
+    message: None
+    jobid: 0
+    input: /home/jri/src/argprep/gvcf/cleangVCF/AM02390ToAhypochondriacus_v3.softmasked.gvcf.gz, /home/jri/src/argprep/results/refs/reference_gvcf.fa, /home/jri/src/argprep/results/refs/reference_gvcf.fa.fai, /home/jri/src/argprep/results/refs/reference_gvcf.dict, /home/jri/src/argprep/gvcf/cleangVCF/dropped_indels.bed
+    output: /home/jri/src/argprep/gvcf/cleangVCF/split_gvcf/AM02390ToAhypochondriacus_v3.softmasked.scaffold_128.gvcf.gz, /home/jri/src/argprep/gvcf/cleangVCF/split_gvcf/AM02390ToAhypochondriacus_v3.softmasked.scaffold_128.gvcf.gz.tbi
+    shell:
+        
+        set -euo pipefail
+        mkdir -p "/home/jri/src/argprep/gvcf/cleangVCF/split_gvcf"
+        tmp_vcf="/home/jri/src/argprep/gvcf/cleangVCF/split_gvcf/AM02390ToAhypochondriacus_v3.softmasked.scaffold_128.gvcf.gz.tmp.vcf"
+        gatk --java-options "-Xmx43200m -Xms43200m" SelectVariants           -R "/home/jri/src/argprep/results/refs/reference_gvcf.fa"           -V "/home/jri/src/argprep/gvcf/cleangVCF/AM02390ToAhypochondriacus_v3.softmasked.gvcf.gz"           -L "scaffold_128"           -O "$tmp_vcf"
+        bgzip -f -c "$tmp_vcf" > "/home/jri/src/argprep/gvcf/cleangVCF/split_gvcf/AM02390ToAhypochondriacus_v3.softmasked.scaffold_128.gvcf.gz"
+        rm -f "$tmp_vcf"
+        tabix -f -p vcf "/home/jri/src/argprep/gvcf/cleangVCF/split_gvcf/AM02390ToAhypochondriacus_v3.softmasked.scaffold_128.gvcf.gz"
+        
+        (command exited with non-zero exit code)
+Shutting down, this might take some time.
+Exiting because a job execution failed. Look below for error messages
+[Sat Feb 14 12:39:07 2026]
+Error in rule split_gvcf_by_contig:
+    message: None
+    jobid: 0
+    input: /home/jri/src/argprep/gvcf/cleangVCF/AM02390ToAhypochondriacus_v3.softmasked.gvcf.gz, /home/jri/src/argprep/results/refs/reference_gvcf.fa, /home/jri/src/argprep/results/refs/reference_gvcf.fa.fai, /home/jri/src/argprep/results/refs/reference_gvcf.dict, /home/jri/src/argprep/gvcf/cleangVCF/dropped_indels.bed
+    output: /home/jri/src/argprep/gvcf/cleangVCF/split_gvcf/AM02390ToAhypochondriacus_v3.softmasked.scaffold_128.gvcf.gz, /home/jri/src/argprep/gvcf/cleangVCF/split_gvcf/AM02390ToAhypochondriacus_v3.softmasked.scaffold_128.gvcf.gz.tbi
+    shell:
+        
+        set -euo pipefail
+        mkdir -p "/home/jri/src/argprep/gvcf/cleangVCF/split_gvcf"
+        tmp_vcf="/home/jri/src/argprep/gvcf/cleangVCF/split_gvcf/AM02390ToAhypochondriacus_v3.softmasked.scaffold_128.gvcf.gz.tmp.vcf"
+        gatk --java-options "-Xmx43200m -Xms43200m" SelectVariants           -R "/home/jri/src/argprep/results/refs/reference_gvcf.fa"           -V "/home/jri/src/argprep/gvcf/cleangVCF/AM02390ToAhypochondriacus_v3.softmasked.gvcf.gz"           -L "scaffold_128"           -O "$tmp_vcf"
+        bgzip -f -c "$tmp_vcf" > "/home/jri/src/argprep/gvcf/cleangVCF/split_gvcf/AM02390ToAhypochondriacus_v3.softmasked.scaffold_128.gvcf.gz"
+        rm -f "$tmp_vcf"
+        tabix -f -p vcf "/home/jri/src/argprep/gvcf/cleangVCF/split_gvcf/AM02390ToAhypochondriacus_v3.softmasked.scaffold_128.gvcf.gz"
+        
+        (command exited with non-zero exit code)
+Storing output in storage.
+WorkflowError:
+At least one job did not complete successfully.
+
+############### Job 30133884 summary from cpu-6-91 ###############
+Name                : snakejob.split_gvcf_by_contig.1929.sh
+User                : jri
+Account             : jrigrp
+Partition           : high
+Nodes               : cpu-6-91
+Cores               : 2
+GPUs                : 0
+State               : FAILED
+ExitCode            : 1:0
+Submit              : 2026-02-14T12:37:13
+Start               : 2026-02-14T12:39:01
+End                 : 2026-02-14T12:39:07
+Reserved walltime   : 2-00:00:00
+Used walltime       :   00:00:06
+Used CPU time       :   00:00:09
+% User (Computation): 77.56%
+% System (I/O)      : 22.43%
+Mem reserved        : 20000M
+Max Mem used        : 124.00K (cpu-6-91)
+Max Disk Write      : 0.00  (cpu-6-91)
+Max Disk Read       : 0.00  (cpu-6-91)
+
+############### Job 30133884 info ###############
+JobId=30133884 JobName=snakejob.split_gvcf_by_contig.1929.sh
+   UserId=jri(9002) GroupId=jri(9002) MCS_label=N/A
+   Priority=6831 Nice=0 Account=jrigrp QOS=jrigrp-high-qos
+   JobState=COMPLETING Reason=NonZeroExitCode Dependency=(null)
+   Requeue=1 Restarts=0 BatchFlag=1 Reboot=0 ExitCode=1:0
+   RunTime=00:00:06 TimeLimit=2-00:00:00 TimeMin=N/A
+   SubmitTime=2026-02-14T12:37:13 EligibleTime=2026-02-14T12:37:13
+   AccrueTime=2026-02-14T12:37:13
+   StartTime=2026-02-14T12:39:01 EndTime=2026-02-14T12:39:07 Deadline=N/A
+   SuspendTime=None SecsPreSuspend=0 LastSchedEval=2026-02-14T12:39:01 Scheduler=Main
+   Partition=high AllocNode:Sid=farm:249410
+   ReqNodeList=(null) ExcNodeList=(null)
+   NodeList=cpu-6-91
+   BatchHost=cpu-6-91
+   NumNodes=1 NumCPUs=2 NumTasks=1 CPUs/Task=1 ReqB:S:C:T=0:0:*:*
+   ReqTRES=cpu=1,mem=20000M,node=1,billing=1
+   AllocTRES=cpu=2,mem=20000M,node=1,billing=2
+   Socks/Node=* NtasksPerN:B:S:C=0:0:*:* CoreSpec=*
+   MinCPUsNode=1 MinMemoryNode=20000M MinTmpDiskNode=0
+   Features=(null) DelayBoot=00:00:00
+   OverSubscribe=OK Contiguous=0 Licenses=(null) LicensesAlloc=(null) Network=(null)
+   Command=/home/jri/src/argprep/.snakemake/tmp.86g2suxx/snakejob.split_gvcf_by_contig.1929.sh
+   SubmitLine=sbatch --account jrigrp --partition high --cpus-per-task=1 --mem=20000 --time=2880 /home/jri/src/argprep/.snakemake/tmp.86g2suxx/snakejob.split_gvcf_by_contig.1929.sh
+   WorkDir=/home/jri/src/argprep
+   StdErr=
+   StdIn=/dev/null
+   StdOut=/home/jri/src/argprep/slurm-30133884.out
+   TresPerTask=cpu=1
