@@ -233,6 +233,12 @@ split_status_files = [str(p) for p in snakemake.params.split_status_files]
 dropped_contigs_not_in_ref = [str(c) for c in snakemake.params.dropped_contigs_not_in_ref]
 requested_contigs = [str(c) for c in snakemake.params.requested_contigs]
 remapped_contigs = [(str(a), str(b)) for a, b in snakemake.params.remapped_contigs]
+ploidy = int(getattr(snakemake.params, "ploidy", 1))
+ploidy_source = str(getattr(snakemake.params, "ploidy_source", "unknown"))
+ploidy_file_values = {
+    str(k): int(v) for k, v in dict(getattr(snakemake.params, "ploidy_file_values", {})).items()
+}
+ploidy_warnings = [str(w) for w in list(getattr(snakemake.params, "ploidy_warnings", []))]
 
 warnings = []
 log_paths = []
@@ -289,6 +295,8 @@ if remapped_contigs:
         "WARNING: Configured contigs were remapped to renamed-reference contigs: "
         f"{preview_pairs}{extra}"
     )
+for message in ploidy_warnings:
+    warnings.append(f"WARNING: Ploidy inference: {message}")
 
 missing_contigs_by_gvcf: dict[str, list[str]] = {}
 for status_path in split_status_files:
@@ -335,6 +343,21 @@ with report_path.open("w", encoding="utf-8") as handle:
     handle.write("<body>\n")
 
     handle.write("<h1>Workflow summary</h1>\n")
+    handle.write("<h2>Ploidy</h2>\n")
+    handle.write(
+        "<p>"
+        f"Resolved ploidy: <strong>{ploidy}</strong> "
+        f"(source: <code>{html.escape(ploidy_source)}</code>)"
+        "</p>\n"
+    )
+    if ploidy_file_values:
+        handle.write("<ul>\n")
+        for maf_name, value in sorted(ploidy_file_values.items()):
+            handle.write(
+                f"<li><code>{html.escape(maf_name)}</code>: inferred ploidy {value}</li>\n"
+            )
+        handle.write("</ul>\n")
+
     handle.write("<h2>Jobs run</h2>\n")
     handle.write("<ul>\n")
     for job, outputs in jobs:
