@@ -1,6 +1,7 @@
 import os
 import re
 import gzip
+import sys
 from pathlib import Path
 
 from snakemake.io import glob_wildcards
@@ -36,7 +37,6 @@ MERGE_CONTIG_MEM_MB = int(config.get("merge_contig_mem_mb", DEFAULT_MEM_MB))
 MERGE_CONTIG_JAVA_MEM_MB = max(256, int(MERGE_CONTIG_MEM_MB * 0.9))
 MERGE_CONTIG_TIME = str(config.get("merge_contig_time", config.get("default_time", "48:00:00")))
 DEFAULT_JAVA_MEM_MB = max(256, int(DEFAULT_MEM_MB * 0.9))
-PLOIDY = int(config.get("ploidy", 2))
 VT_NORMALIZE = bool(config.get("vt_normalize", False))
 VT_PATH = str(config.get("vt_path", "vt"))
 MERGED_GENOTYPER = "selectvariants"
@@ -172,6 +172,75 @@ def _discover_samples():
     return sorted(samples)
 
 
+def _infer_ploidy_from_maf(maf_path: Path, max_blocks: int = 10000) -> int:
+    opener = gzip.open if maf_path.suffix == ".gz" else open
+    max_non_ref = 0
+    block_seq_count = 0
+    blocks_seen = 0
+
+    try:
+        with opener(maf_path, "rt", encoding="utf-8", errors="ignore") as handle:
+            for line in handle:
+                if not line or line.startswith("#"):
+                    continue
+                stripped = line.strip()
+                if not stripped:
+                    if block_seq_count > 0:
+                        max_non_ref = max(max_non_ref, max(0, block_seq_count - 1))
+                        blocks_seen += 1
+                        if blocks_seen >= max_blocks:
+                            break
+                    block_seq_count = 0
+                    continue
+                if stripped.startswith("a "):
+                    if block_seq_count > 0:
+                        max_non_ref = max(max_non_ref, max(0, block_seq_count - 1))
+                        blocks_seen += 1
+                        if blocks_seen >= max_blocks:
+                            break
+                    block_seq_count = 0
+                    continue
+                if stripped.startswith("s "):
+                    block_seq_count += 1
+    except OSError:
+        return 1
+
+    if block_seq_count > 0:
+        max_non_ref = max(max_non_ref, max(0, block_seq_count - 1))
+        blocks_seen += 1
+
+    if blocks_seen == 0:
+        return 1
+    return max(1, max_non_ref)
+
+
+def _resolve_ploidy(samples: list[str]) -> tuple[int, str, dict[str, int], list[str]]:
+    if "ploidy" in config and config["ploidy"] not in (None, ""):
+        return int(config["ploidy"]), "config", {}, []
+
+    per_file: dict[str, int] = {}
+    for sample in samples:
+        maf = MAF_DIR / f"{sample}.maf"
+        maf_gz = MAF_DIR / f"{sample}.maf.gz"
+        maf_path = maf if maf.exists() else maf_gz
+        if maf_path.exists():
+            per_file[maf_path.name] = _infer_ploidy_from_maf(maf_path)
+
+    if not per_file:
+        return 1, "default", {}, ["No MAF files found for ploidy inference; defaulting to 1."]
+
+    unique_values = sorted(set(per_file.values()))
+    if len(unique_values) == 1:
+        return unique_values[0], "maf", per_file, []
+
+    chosen = max(unique_values)
+    warning = (
+        "Inconsistent inferred ploidy across MAF files "
+        f"({', '.join(f'{k}:{v}' for k, v in sorted(per_file.items()))}); using max={chosen}."
+    )
+    return chosen, "maf_max", per_file, [warning]
+
+
 def _read_fai_contigs(fai: Path) -> list[str]:
     contigs = []
     with fai.open("r", encoding="utf-8") as handle:
@@ -239,9 +308,44 @@ def _read_contigs():
 
 
 SAMPLES = _discover_samples()
+PLOIDY, PLOIDY_SOURCE, PLOIDY_FILE_VALUES, PLOIDY_WARNINGS = _resolve_ploidy(SAMPLES)
 CONTIGS, DROPPED_CONTIGS_NOT_IN_REF, REQUESTED_CONTIGS, REMAPPED_CONTIGS = _read_contigs()
 
 GVCF_BASES = [f"{sample}To{REF_BASE}" for sample in SAMPLES]
+
+for _ploidy_warning in PLOIDY_WARNINGS:
+    print(f"WARNING: {_ploidy_warning}", file=sys.stderr)
+
+
+def _active_contig_resolution() -> tuple[list[str], list[str], list[str], list[tuple[str, str]]]:
+    ckpt = checkpoints.index_reference.get()
+    fai = Path(str(ckpt.output.fai))
+    available = _read_fai_contigs(fai)
+    if "contigs" in config:
+        requested = [str(c) for c in config["contigs"]]
+        kept, dropped, remapped = _resolve_requested_contigs(requested, available)
+        if not kept:
+            raise ValueError(
+                "None of the configured contigs are present in renamed reference .fai: "
+                + ", ".join(requested[:10])
+            )
+        return kept, dropped, requested, remapped
+    return available, [], list(available), []
+
+
+def _active_contigs() -> list[str]:
+    return _active_contig_resolution()[0]
+
+
+def _all_targets(_wc):
+    contigs = _active_contigs()
+    return (
+        [str(_combined_out(c)) for c in contigs]
+        + [str(_split_prefix(c)) + ".filtered.bed" for c in contigs]
+        + [str(_split_prefix(c)) + ".coverage.txt" for c in contigs]
+        + [str(_accessibility_out(c)) for c in contigs]
+        + [str(RESULTS_DIR / "summary.html")]
+    )
 
 
 
@@ -287,12 +391,7 @@ SPLIT_SUFFIX = ".gz" if BGZIP_OUTPUT else ""
 
 rule all:
     # Final targets: merged gVCFs plus filtered bed masks per contig.
-    input:
-        [str(_combined_out(c)) for c in CONTIGS],
-        [str(_split_prefix(c)) + ".filtered.bed" for c in CONTIGS],
-        [str(_split_prefix(c)) + ".coverage.txt" for c in CONTIGS],
-        [str(_accessibility_out(c)) for c in CONTIGS],
-        str(RESULTS_DIR / "summary.html"),
+    input: _all_targets
 
 rule rename_reference:
     # Create a renamed reference FASTA to match gVCF contig names.
@@ -318,7 +417,7 @@ rule rename_reference:
                 else:
                     fout.write(line)
 
-rule index_reference:
+checkpoint index_reference:
     # Create reference FASTA index and sequence dictionary for GATK.
     input:
         ref=str(REF_FASTA_GATK),
@@ -334,6 +433,7 @@ rule index_reference:
 
 
 def _summary_jobs() -> list[tuple[str, list[str]]]:
+    contigs = _active_contigs()
     jobs = [
         ("index_reference", [REF_FAI, REF_DICT]),
         ("rename_reference", [str(RENAMED_REF_FASTA)]),
@@ -345,64 +445,66 @@ def _summary_jobs() -> list[tuple[str, list[str]]]:
         ),
         (
             "split_gvcf_by_contig",
-            [str(_split_out(base, contig)) for contig in CONTIGS for base in GVCF_BASES],
+            [str(_split_out(base, contig)) for contig in contigs for base in GVCF_BASES],
         ),
     ]
     if VT_NORMALIZE:
-        jobs.append(("merge_contig_raw", [str(_combined_raw_out(c)) for c in CONTIGS]))
-        jobs.append(("normalize_merged_gvcf", [str(_combined_out(c)) for c in CONTIGS]))
+        jobs.append(("merge_contig_raw", [str(_combined_raw_out(c)) for c in contigs]))
+        jobs.append(("normalize_merged_gvcf", [str(_combined_out(c)) for c in contigs]))
     else:
-        jobs.append(("merge_contig", [str(_combined_out(c)) for c in CONTIGS]))
+        jobs.append(("merge_contig", [str(_combined_out(c)) for c in contigs]))
     jobs.extend(
         [
             (
                 "split_gvcf",
                 [
                     str(_split_prefix(c)) + suffix
-                    for c in CONTIGS
+                    for c in contigs
                     for suffix in (".inv", ".filtered", ".clean", ".missing.bed")
                 ],
             ),
-            ("check_split_coverage", [str(_split_prefix(c)) + ".coverage.txt" for c in CONTIGS]),
-            ("mask_bed", [str(_split_prefix(c)) + ".filtered.bed" for c in CONTIGS]),
-            ("make_accessibility", [str(_accessibility_out(c)) for c in CONTIGS]),
+            ("check_split_coverage", [str(_split_prefix(c)) + ".coverage.txt" for c in contigs]),
+            ("mask_bed", [str(_split_prefix(c)) + ".filtered.bed" for c in contigs]),
+            ("make_accessibility", [str(_accessibility_out(c)) for c in contigs]),
         ]
     )
     return jobs
 
 
 def _summary_temp_paths() -> set[str]:
+    contigs = _active_contigs()
     temp_paths = set()
     temp_paths.update(str(_gvcf_out(base)) for base in GVCF_BASES)
     temp_paths.update(str(GVCF_DIR / "cleangVCF" / f"{base}.gvcf.gz") for base in GVCF_BASES)
-    temp_paths.update(str(_split_out(base, contig)) for contig in CONTIGS for base in GVCF_BASES)
+    temp_paths.update(str(_split_out(base, contig)) for contig in contigs for base in GVCF_BASES)
     temp_paths.update(
         str(_split_out(base, contig)) + ".tbi"
-        for contig in CONTIGS
+        for contig in contigs
         for base in GVCF_BASES
     )
-    temp_paths.update(str(RESULTS_DIR / "genomicsdb" / f"{contig}") for contig in CONTIGS)
+    temp_paths.update(str(RESULTS_DIR / "genomicsdb" / f"{contig}") for contig in contigs)
     if VT_NORMALIZE:
-        temp_paths.update(str(_combined_raw_out(c)) for c in CONTIGS)
+        temp_paths.update(str(_combined_raw_out(c)) for c in contigs)
     return temp_paths
 
 
 def _summary_arg_outputs() -> list[str]:
+    contigs = _active_contigs()
     return (
-        [str(_split_prefix(c)) + ".clean" for c in CONTIGS]
-        + [str(_split_prefix(c)) + ".filtered.bed" for c in CONTIGS]
-        + [str(_accessibility_out(c)) for c in CONTIGS]
+        [str(_split_prefix(c)) + ".clean" for c in contigs]
+        + [str(_split_prefix(c)) + ".filtered.bed" for c in contigs]
+        + [str(_accessibility_out(c)) for c in contigs]
     )
 
 
 rule summary_report:
     # Write an HTML summary of jobs, outputs, and warnings.
     input:
-        combined=[str(_combined_out(c)) for c in CONTIGS],
-        beds=[str(_split_prefix(c)) + ".filtered.bed" for c in CONTIGS],
-        invs=[str(_split_prefix(c)) + ".inv" + SPLIT_SUFFIX for c in CONTIGS],
-        filts=[str(_split_prefix(c)) + ".filtered" + SPLIT_SUFFIX for c in CONTIGS],
-        cleans=[str(_split_prefix(c)) + ".clean" + SPLIT_SUFFIX for c in CONTIGS],
+        combined=lambda wc: [str(_combined_out(c)) for c in _active_contigs()],
+        beds=lambda wc: [str(_split_prefix(c)) + ".filtered.bed" for c in _active_contigs()],
+        invs=lambda wc: [str(_split_prefix(c)) + ".inv" + SPLIT_SUFFIX for c in _active_contigs()],
+        filts=lambda wc: [str(_split_prefix(c)) + ".filtered" + SPLIT_SUFFIX for c in _active_contigs()],
+        cleans=lambda wc: [str(_split_prefix(c)) + ".clean" + SPLIT_SUFFIX for c in _active_contigs()],
         dropped=str(GVCF_DIR / "cleangVCF" / "dropped_indels.bed"),
     output:
         report=str(RESULTS_DIR / "summary.html"),
@@ -410,19 +512,23 @@ rule summary_report:
         ref_fai=str(REF_FAI),
         maf_dir=str(MAF_DIR),
         orig_ref_fasta=str(ORIG_REF_FASTA),
-        contigs=[str(c) for c in CONTIGS],
-        jobs=_summary_jobs(),
-        temp_paths=sorted(_summary_temp_paths()),
-        arg_outputs=_summary_arg_outputs(),
-        split_prefixes={str(c): str(_split_prefix(c)) for c in CONTIGS},
-        split_status_files=[
+        contigs=lambda wc: [str(c) for c in _active_contigs()],
+        jobs=lambda wc: _summary_jobs(),
+        temp_paths=lambda wc: sorted(_summary_temp_paths()),
+        arg_outputs=lambda wc: _summary_arg_outputs(),
+        split_prefixes=lambda wc: {str(c): str(_split_prefix(c)) for c in _active_contigs()},
+        split_status_files=lambda wc: [
             str(_split_status_out(base, contig))
-            for contig in CONTIGS
+            for contig in _active_contigs()
             for base in GVCF_BASES
         ],
-        dropped_contigs_not_in_ref=DROPPED_CONTIGS_NOT_IN_REF,
-        requested_contigs=REQUESTED_CONTIGS,
-        remapped_contigs=REMAPPED_CONTIGS,
+        ploidy=PLOIDY,
+        ploidy_source=PLOIDY_SOURCE,
+        ploidy_file_values=PLOIDY_FILE_VALUES,
+        ploidy_warnings=PLOIDY_WARNINGS,
+        dropped_contigs_not_in_ref=lambda wc: _active_contig_resolution()[1],
+        requested_contigs=lambda wc: _active_contig_resolution()[2],
+        remapped_contigs=lambda wc: _active_contig_resolution()[3],
     script:
         "scripts/summary_report.py"
 

@@ -20,8 +20,9 @@ outputJustGT: false
 contigs:
   - 1
 
-# Ploidy for GATK GenotypeGVCFs (workflow defaults to haploid; not validated for diploid assemblies)
-ploidy: 1
+# Optional ploidy override. If omitted, ploidy is inferred from MAF block structure
+# as max(non-reference "s" lines per block), with a default of 1.
+# ploidy: 1
 
 # Optional: override sample list (default is all *.maf in maf_dir)
 # samples:
