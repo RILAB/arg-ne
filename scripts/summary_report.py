@@ -230,6 +230,8 @@ temp_paths = set(str(p) for p in snakemake.params.temp_paths)
 arg_outputs = [str(p) for p in snakemake.params.arg_outputs]
 split_prefixes = {str(k): str(v) for k, v in dict(snakemake.params.split_prefixes).items()}
 split_status_files = [str(p) for p in snakemake.params.split_status_files]
+dropped_contigs_not_in_ref = [str(c) for c in snakemake.params.dropped_contigs_not_in_ref]
+requested_contigs = [str(c) for c in snakemake.params.requested_contigs]
 
 warnings = []
 log_paths = []
@@ -263,6 +265,22 @@ try:
         )
 except Exception as exc:
     warnings.append(f"WARNING: Failed to compare MAF vs reference contigs: {exc}")
+
+if dropped_contigs_not_in_ref:
+    preview = ", ".join(dropped_contigs_not_in_ref[:20])
+    extra = (
+        f" (+{len(dropped_contigs_not_in_ref) - 20} more)"
+        if len(dropped_contigs_not_in_ref) > 20
+        else ""
+    )
+    warnings.append(
+        "WARNING: Configured contigs not present in reference .fai were skipped: "
+        f"{preview}{extra}"
+    )
+    warnings.append(
+        "WARNING: Contigs requested="
+        f"{len(requested_contigs)}, running={len(contigs)}, skipped={len(dropped_contigs_not_in_ref)}"
+    )
 
 missing_contigs_by_gvcf: dict[str, list[str]] = {}
 for status_path in split_status_files:
