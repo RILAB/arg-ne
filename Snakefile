@@ -479,9 +479,13 @@ rule split_gvcf_by_contig:
           printf "{wildcards.gvcf_base}\t{wildcards.contig}\tpresent\n" > "{output.status}"
         else
           sample_name="$(bcftools query -l "{input.gvcf}" | head -n 1)"
+          contig_len="$(awk -F '\t' '$1 == "{wildcards.contig}" {{ print $2; exit }}' "{input.fai}")"
+          if [ -z "$contig_len" ]; then
+            contig_len="1"
+          fi
           {{
             printf "##fileformat=VCFv4.2\n"
-            printf "##contig=<ID={wildcards.contig}>\n"
+            printf "##contig=<ID={wildcards.contig},length=%s>\n" "$contig_len"
             printf "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t%s\n" "$sample_name"
           }} > "$tmp_vcf"
           bgzip -f -c "$tmp_vcf" > "{output.gvcf}"
@@ -504,6 +508,7 @@ if VT_NORMALIZE:
         input:
             gvcfs=lambda wc: [str(_split_out(b, wc.contig)) for b in GVCF_BASES],
             tbis=lambda wc: [str(_split_out(b, wc.contig)) + ".tbi" for b in GVCF_BASES],
+            statuses=lambda wc: [str(_split_status_out(b, wc.contig)) for b in GVCF_BASES],
             ref=str(REF_FASTA_GATK),
             fai=REF_FAI,
             dict=REF_DICT,
@@ -512,17 +517,28 @@ if VT_NORMALIZE:
             gvcf=str(COMBINED_RAW_DIR / "combined.{contig}.gvcf.gz"),
             workspace=temp(directory(str(RESULTS_DIR / "genomicsdb" / "{contig}"))),
         params:
-            gvcf_args=lambda wc: " ".join(
-                f"-V {str(_split_out(b, wc.contig))}" for b in GVCF_BASES
-            ),
             vcf_buffer_size=GENOMICSDB_VCF_BUFFER_SIZE,
             segment_size=GENOMICSDB_SEGMENT_SIZE,
         shell:
             """
             set -euo pipefail
             mkdir -p "{COMBINED_RAW_DIR}"
+            present_args=()
+            for gvcf in {input.gvcfs}; do
+              status="${{gvcf%.gvcf.gz}}.status.tsv"
+              if [ -f "$status" ] && awk -F '\t' 'NR == 1 {{ exit ($3 == "present" ? 0 : 1) }}' "$status"; then
+                present_args+=("-V" "$gvcf")
+              fi
+            done
+            if [ "${{#present_args[@]}}" -eq 0 ]; then
+              echo "WARNING: No samples contained contig {wildcards.contig}; writing empty merged placeholder." >&2
+              bcftools merge -m none -Oz -o "{output.gvcf}" {input.gvcfs}
+              tabix -f -p vcf "{output.gvcf}"
+              mkdir -p "{output.workspace}"
+              exit 0
+            fi
             gatk --java-options "-Xmx{MERGE_CONTIG_JAVA_MEM_MB}m -Xms{MERGE_CONTIG_JAVA_MEM_MB}m" GenomicsDBImport \
-              {params.gvcf_args} \
+              "${{present_args[@]}}" \
               --genomicsdb-workspace-path "{output.workspace}" \
               -L "{wildcards.contig}" \
               --genomicsdb-vcf-buffer-size {params.vcf_buffer_size} \
@@ -545,6 +561,7 @@ else:
         input:
             gvcfs=lambda wc: [str(_split_out(b, wc.contig)) for b in GVCF_BASES],
             tbis=lambda wc: [str(_split_out(b, wc.contig)) + ".tbi" for b in GVCF_BASES],
+            statuses=lambda wc: [str(_split_status_out(b, wc.contig)) for b in GVCF_BASES],
             ref=str(REF_FASTA_GATK),
             fai=REF_FAI,
             dict=REF_DICT,
@@ -553,17 +570,28 @@ else:
             gvcf=str(COMBINED_DIR / "combined.{contig}.gvcf.gz"),
             workspace=temp(directory(str(RESULTS_DIR / "genomicsdb" / "{contig}"))),
         params:
-            gvcf_args=lambda wc: " ".join(
-                f"-V {str(_split_out(b, wc.contig))}" for b in GVCF_BASES
-            ),
             vcf_buffer_size=GENOMICSDB_VCF_BUFFER_SIZE,
             segment_size=GENOMICSDB_SEGMENT_SIZE,
         shell:
             """
             set -euo pipefail
             mkdir -p "{COMBINED_DIR}"
+            present_args=()
+            for gvcf in {input.gvcfs}; do
+              status="${{gvcf%.gvcf.gz}}.status.tsv"
+              if [ -f "$status" ] && awk -F '\t' 'NR == 1 {{ exit ($3 == "present" ? 0 : 1) }}' "$status"; then
+                present_args+=("-V" "$gvcf")
+              fi
+            done
+            if [ "${{#present_args[@]}}" -eq 0 ]; then
+              echo "WARNING: No samples contained contig {wildcards.contig}; writing empty merged placeholder." >&2
+              bcftools merge -m none -Oz -o "{output.gvcf}" {input.gvcfs}
+              tabix -f -p vcf "{output.gvcf}"
+              mkdir -p "{output.workspace}"
+              exit 0
+            fi
             gatk --java-options "-Xmx{MERGE_CONTIG_JAVA_MEM_MB}m -Xms{MERGE_CONTIG_JAVA_MEM_MB}m" GenomicsDBImport \
-              {params.gvcf_args} \
+              "${{present_args[@]}}" \
               --genomicsdb-workspace-path "{output.workspace}" \
               -L "{wildcards.contig}" \
               --genomicsdb-vcf-buffer-size {params.vcf_buffer_size} \
