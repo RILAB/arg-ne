@@ -172,15 +172,7 @@ def _discover_samples():
     return sorted(samples)
 
 
-def _read_contigs():
-    if "contigs" in config:
-        return list(config["contigs"])
-    fai = REF_FASTA.with_suffix(REF_FASTA.suffix + ".fai")
-    if not fai.exists():
-        raise ValueError(
-            "Reference FASTA index (.fai) not found. "
-            "Either run 'samtools faidx' on the reference or set 'contigs' in config.yaml."
-        )
+def _read_fai_contigs(fai: Path) -> list[str]:
     contigs = []
     with fai.open("r", encoding="utf-8") as handle:
         for line in handle:
@@ -190,8 +182,30 @@ def _read_contigs():
     return contigs
 
 
+def _read_contigs():
+    fai = REF_FASTA.with_suffix(REF_FASTA.suffix + ".fai")
+    if not fai.exists():
+        raise ValueError(
+            "Reference FASTA index (.fai) not found. "
+            "Either run 'samtools faidx' on the reference or set 'contigs' in config.yaml."
+        )
+    ref_contigs = _read_fai_contigs(fai)
+    if "contigs" in config:
+        requested = [str(c) for c in config["contigs"]]
+        ref_set = set(ref_contigs)
+        kept = [c for c in requested if c in ref_set]
+        dropped = [c for c in requested if c not in ref_set]
+        if not kept:
+            raise ValueError(
+                "None of the configured contigs are present in reference .fai: "
+                + ", ".join(requested[:10])
+            )
+        return kept, dropped, requested
+    return ref_contigs, [], list(ref_contigs)
+
+
 SAMPLES = _discover_samples()
-CONTIGS = _read_contigs()
+CONTIGS, DROPPED_CONTIGS_NOT_IN_REF, REQUESTED_CONTIGS = _read_contigs()
 
 GVCF_BASES = [f"{sample}To{REF_BASE}" for sample in SAMPLES]
 
@@ -372,6 +386,8 @@ rule summary_report:
             for contig in CONTIGS
             for base in GVCF_BASES
         ],
+        dropped_contigs_not_in_ref=DROPPED_CONTIGS_NOT_IN_REF,
+        requested_contigs=REQUESTED_CONTIGS,
     script:
         "scripts/summary_report.py"
 
