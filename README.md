@@ -42,6 +42,7 @@ The pipeline can be run one of two ways, both from the repo root. **It is recomm
 A default SLURM profile is provided under `profiles/slurm/`. Edit `profiles/slurm/config.yaml` to customize sbatch options if needed.
 Defaults for account/partition and baseline resources are set in `config.yaml` (`slurm_account`, `slurm_partition`, `default_*`).
 SLURM stdout/stderr logs are written to `logs/slurm/` by default.
+The provided profile sets `jobs: 200` (Snakemake's max concurrent workflow jobs, equivalent to `-j 200`), which you can override on the command line if needed.
 
 ```bash
 snakemake --profile profiles/slurm
@@ -55,7 +56,7 @@ snakemake -j 8
 
 Common options:
 
-- `-j <N>`: number of parallel jobs
+- `-j <N>`: number of parallel Snakemake jobs (not per-job threads/CPUs)
 - `--rerun-incomplete`: clean up partial outputs
 - `--printshellcmds`: show executed commands
 - `--notemp`: keep temporary intermediates (see Notes)
@@ -77,6 +78,33 @@ By default the workflow uses these locations (override in `config.yaml`):
 - `results/split/combined.<contig>.coverage.txt` : split coverage validation summary
 - `results/split/combined.<contig>.accessible.npz` : boolean accessibility array (union of clean + invariant sites), for scikit-allel statistics
 - `results/summary.html` : HTML summary of jobs run, outputs created, and warnings
+  - Contig remaps (e.g., configured `chr1` remapped to reference contig `1`) are reported under the remap warning and are not repeated in the generic MAF-vs-reference mismatch warnings.
+
+## Testing
+
+Run from the repo root:
+
+```bash
+pytest -q
+```
+
+- Runs unit/fast tests by default.
+- Some integration tests are gated and skipped unless enabled.
+
+To run integration tests too:
+
+```bash
+RUN_INTEGRATION=1 pytest -q
+```
+
+- Requires the `argprep` conda environment and external tools used by the workflow (e.g., `snakemake`, `bcftools`, `tabix`, `bgzip`, `gatk`, `java`; some tests also need `samtools`).
+- These tests take longer and may run parts of the Snakemake workflow.
+
+For a quick SLURM-profile syntax/config sanity check without submitting jobs, use a dry run:
+
+```bash
+snakemake --profile profiles/slurm -n
+```
 
 ## Notes
 

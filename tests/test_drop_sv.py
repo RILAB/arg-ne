@@ -44,6 +44,15 @@ def _write_vcf(path: Path):
     )
 
 
+def _write_snp_only_vcf(path: Path):
+    path.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        "1\t2\t.\tA\tT\t.\t.\t.\n",
+        encoding="utf-8",
+    )
+
+
 def _count_records(path: Path) -> int:
     count = 0
     with subprocess.Popen(_conda_cmd("bcftools", "view", "-H", str(path)), stdout=subprocess.PIPE, text=True) as proc:
@@ -85,3 +94,34 @@ def test_drop_sv_filters_large_indel(tmp_path: Path):
     assert dropped_bed.exists()
     bed_lines = [l for l in dropped_bed.read_text(encoding="utf-8").splitlines() if l.strip()]
     assert len(bed_lines) == 1
+
+
+def test_drop_sv_copies_and_indexes_when_no_large_indels(tmp_path: Path):
+    _require_conda_tools("bcftools", "bgzip", "tabix")
+    vcf = tmp_path / "sample.gvcf"
+    _write_snp_only_vcf(vcf)
+
+    _run(_conda_cmd("bgzip", "-f", str(vcf)))
+    gvcf = tmp_path / "sample.gvcf.gz"
+    _run(_conda_cmd("tabix", "-p", "vcf", str(gvcf)))
+
+    _run(_conda_cmd(
+        "python3",
+        str(Path("scripts") / "dropSV.py"),
+        "-d",
+        str(tmp_path),
+        "-c",
+        "1",
+    ))
+
+    cleaned = tmp_path / "cleangVCF" / "sample.gvcf.gz"
+    cleaned_tbi = tmp_path / "cleangVCF" / "sample.gvcf.gz.tbi"
+    assert cleaned.exists()
+    assert cleaned_tbi.exists()
+    assert _count_records(cleaned) == 1
+    # No filtering path should preserve the compressed payload byte-for-byte via copy.
+    assert cleaned.read_bytes() == gvcf.read_bytes()
+
+    dropped_bed = tmp_path / "cleangVCF" / "dropped_indels.bed"
+    assert dropped_bed.exists()
+    assert dropped_bed.read_text(encoding="utf-8").strip() == ""
