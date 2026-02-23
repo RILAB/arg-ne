@@ -1,3 +1,17 @@
+## Changes since v0.3
+
+- Added/expanded contig handling across the workflow: reference renaming from gVCF/MAF contigs, numeric-suffix normalization, configured-contig remapping (e.g. `chr1` -> `1`), filtering contigs to the reference `.fai`, and defaulting to the shared MAF-contig intersection when `contigs:` is not set.
+- Improved missing-contig behavior and reporting: split/merge steps now skip missing per-sample contigs more safely, preserve valid placeholders, and surface clearer warnings in the HTML summary.
+- Expanded HTML summary reporting with stronger warning parsing, MAF-vs-reference contig mismatch warnings, ploidy reporting, and a missing-genotype exclusion histogram.
+- Fixed summary warning de-duplication so contigs reported in "Configured contigs were remapped..." are not also repeated in generic MAF/reference mismatch warnings.
+- Improved split/filter/mask robustness: refined split classification and filtered BED span handling, gzip/bgzip split-output support, gzipped missing-BED input support, and better empty-coverage handling in `check_split_coverage.py`.
+- Added accessibility mask outputs (`combined.<contig>.accessible.npz`) for scikit-allel workflows and documented downstream use.
+- Added ploidy inference from MAF blocks (with summary reporting) while retaining config override support.
+- Added and refined resource/concurrency controls: configurable `maf_to_gvcf_*` and `merge_contig_*` resources, `merge_gvcf_max_jobs`, `maf_to_gvcf_array_max_jobs`, GenomicsDB buffer tuning, and `default_mem_mb` fallback behavior.
+- Improved SLURM profile/runtime behavior: numeric default resource values in the profile, SLURM stdout/stderr written to `logs/slurm/`, and clearer documentation of profile `jobs` (Snakemake parallelism) vs per-job CPUs.
+- Added substantial test coverage: pytest scaffolding, split/filt/dropSV unit tests, coverage checks, integration tests (including contig mismatch/default-contig behavior), random-position validation, summary-report regressions, Snakefile contig-resolution unit tests, and a SLURM-profile dry-run smoke test.
+- Documentation updates: `logic.md`, expanded README notes/options/outputs/testing instructions, and a standalone `changelog.md`.
+
 ## Changes since v0.2
 
 - Moved HTML summary generation into `scripts/summary_report.py` and simplified `Snakefile`.
