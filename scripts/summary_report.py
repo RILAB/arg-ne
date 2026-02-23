@@ -352,8 +352,10 @@ for log_path in log_paths:
 try:
     maf_contigs = _read_maf_contigs(Path(snakemake.params.maf_dir))
     ref_contigs = set(_read_fasta_contigs(Path(snakemake.params.orig_ref_fasta)))
-    missing_in_ref = sorted(set(maf_contigs) - ref_contigs)
-    missing_in_maf = sorted(ref_contigs - set(maf_contigs))
+    remapped_sources = {src for src, _dst in remapped_contigs}
+    remapped_targets = {dst for _src, dst in remapped_contigs}
+    missing_in_ref = sorted((set(maf_contigs) - ref_contigs) - remapped_sources)
+    missing_in_maf = sorted((ref_contigs - set(maf_contigs)) - remapped_targets)
     if missing_in_ref:
         warnings.append(
             "WARNING: MAF contigs not present in reference (showing up to 5): "

@@ -55,10 +55,7 @@ def _is_gzip(path: Path) -> bool:
         return False
 
 
-def test_snakemake_summary(tmp_path: Path):
-    _require_integration()
-    _require_conda_tools("argprep", "snakemake", "bcftools", "tabix", "bgzip", "gatk", "java")
-    repo = Path.cwd()
+def _run_example_summary(repo: Path, tmp_path: Path) -> str:
     ref = _config_reference_fasta(repo / "config.yaml")
     if ref is None or not ref.exists():
         pytest.skip(f"Missing reference FASTA from config.yaml: {ref}")
@@ -100,15 +97,10 @@ def test_snakemake_summary(tmp_path: Path):
         ],
         cwd=Path.cwd(),
     )
+    return Path(summary_target).read_text(encoding="utf-8", errors="ignore")
 
 
-def test_snakemake_contig_mismatch_handling(tmp_path: Path):
-    _require_integration()
-    _require_conda_tools(
-        "argprep", "snakemake", "samtools", "bcftools", "tabix", "bgzip", "gatk", "java"
-    )
-    repo = Path.cwd()
-
+def _run_contig_mismatch_summary(repo: Path, tmp_path: Path) -> str:
     # Build a reference with one real contig and one contig absent from MAFs.
     ref_src = repo / "example_data" / "ref.fa"
     if not ref_src.exists():
@@ -173,8 +165,27 @@ def test_snakemake_contig_mismatch_handling(tmp_path: Path):
         ],
         cwd=repo,
     )
+    return Path(summary_target).read_text(encoding="utf-8", errors="ignore")
 
-    summary_text = Path(summary_target).read_text(encoding="utf-8", errors="ignore")
+
+def test_snakemake_summary(tmp_path: Path):
+    _require_integration()
+    _require_conda_tools("argprep", "snakemake", "bcftools", "tabix", "bgzip", "gatk", "java")
+    repo = Path.cwd()
+    summary_text = _run_example_summary(repo, tmp_path)
+    assert "Workflow summary" in summary_text
+    assert "Ploidy" in summary_text
+    assert "Jobs run" in summary_text
+    assert "Warnings" in summary_text
+
+
+def test_snakemake_contig_mismatch_handling(tmp_path: Path):
+    _require_integration()
+    _require_conda_tools(
+        "argprep", "snakemake", "samtools", "bcftools", "tabix", "bgzip", "gatk", "java"
+    )
+    repo = Path.cwd()
+    summary_text = _run_contig_mismatch_summary(repo, tmp_path)
     assert "Configured contigs not present in reference .fai were skipped" in summary_text
     assert "requested_only_contig" in summary_text
     assert "Configured contigs were remapped to renamed-reference contigs" in summary_text
@@ -183,6 +194,62 @@ def test_snakemake_contig_mismatch_handling(tmp_path: Path):
     assert "maf_only_contig" in summary_text
     assert "Reference contigs not present in MAFs" in summary_text
     assert "fai_only_contig" in summary_text
+
+
+def test_snakemake_contig_mismatch_remapped_contigs_not_double_reported(tmp_path: Path):
+    _require_integration()
+    _require_conda_tools(
+        "argprep", "snakemake", "samtools", "bcftools", "tabix", "bgzip", "gatk", "java"
+    )
+    summary_text = _run_contig_mismatch_summary(Path.cwd(), tmp_path)
+    assert "Configured contigs were remapped to renamed-reference contigs" in summary_text
+    assert "chr1-&gt;1" in summary_text
+    assert "MAF contigs not present in reference (showing up to 5): chr1" not in summary_text
+    assert "Reference contigs not present in MAFs (showing up to 5): 1" not in summary_text
+
+
+def test_snakemake_slurm_profile_dry_run_smoke(tmp_path: Path):
+    _require_integration()
+    _require_conda_tools("argprep", "snakemake")
+    repo = Path.cwd()
+    ref = _config_reference_fasta(repo / "config.yaml")
+    if ref is None or not ref.exists():
+        pytest.skip(f"Missing reference FASTA from config.yaml: {ref}")
+    maf_files = list((repo / "example_data").glob("*.maf*"))
+    if not maf_files:
+        pytest.skip("No example MAFs found under example_data/")
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    shutil.copyfile(maf_files[0], maf_dir / maf_files[0].name)
+    target = str(tmp_path / "results" / "summary.html")
+    _run(
+        [
+            _conda_exe(),
+            "run",
+            "-n",
+            "argprep",
+            "env",
+            "HOME=/tmp",
+            "TMPDIR=/tmp",
+            "XDG_CACHE_HOME=/tmp",
+            "SNAKEMAKE_OUTPUT_CACHE=/tmp/snakemake",
+            "SNAKEMAKE_SOURCE_CACHE=/tmp/snakemake",
+            "snakemake",
+            "--profile",
+            "profiles/slurm",
+            "-n",
+            "--config",
+            f"maf_dir={maf_dir}",
+            f"reference_fasta={ref}",
+            f"results_dir={tmp_path / 'results'}",
+            f"gvcf_dir={tmp_path / 'gvcf'}",
+            "samples=['ind2']",
+            "contigs=['1']",
+            "--",
+            target,
+        ],
+        cwd=repo,
+    )
 
 
 def test_snakemake_default_contigs_use_maf_intersection(tmp_path: Path):
