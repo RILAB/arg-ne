@@ -37,7 +37,7 @@ def test_filt_to_bed_uses_ref_len(tmp_path: Path):
     dropped.write_text("", encoding="utf-8")
 
     (tmp_path / "sample.inv").write_text("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n", encoding="utf-8")
-    (tmp_path / "sample.clean").write_text("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n", encoding="utf-8")
+    (tmp_path / "sample.clean.vcf").write_text("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n", encoding="utf-8")
 
     _run(
         [
@@ -50,7 +50,7 @@ def test_filt_to_bed_uses_ref_len(tmp_path: Path):
         cwd=Path.cwd(),
     )
 
-    out_bed = tmp_path / "sample.filtered.bed"
+    out_bed = tmp_path / "sample.clean.mask.bed"
     assert out_bed.exists()
 
     # REF length 3 => interval length 3, plus missing interval length 1
@@ -80,7 +80,7 @@ def test_filt_to_bed_end_and_subtraction(tmp_path: Path):
         "1\t11\t.\tA\t.\t.\t.\tDP=10\tGT\t0\n",
         encoding="utf-8",
     )
-    (tmp_path / "sample.clean").write_text(
+    (tmp_path / "sample.clean.vcf").write_text(
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
         "1\t12\t.\tA\tG\t.\t.\tDP=10\tGT\t0/1\n",
         encoding="utf-8",
@@ -97,7 +97,7 @@ def test_filt_to_bed_end_and_subtraction(tmp_path: Path):
         cwd=Path.cwd(),
     )
 
-    out_bed = tmp_path / "sample.filtered.bed"
+    out_bed = tmp_path / "sample.clean.mask.bed"
     assert out_bed.exists()
 
     # Span 10-12 (3 bp), subtract 11 and 12 => only 1 bp remains.
@@ -122,7 +122,7 @@ def test_filt_to_bed_accepts_gz_missing_bed(tmp_path: Path):
     dropped.write_text("", encoding="utf-8")
 
     (tmp_path / "sample.inv").write_text("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n", encoding="utf-8")
-    (tmp_path / "sample.clean").write_text("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n", encoding="utf-8")
+    (tmp_path / "sample.clean.vcf").write_text("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n", encoding="utf-8")
 
     _run(
         [
@@ -135,6 +135,6 @@ def test_filt_to_bed_accepts_gz_missing_bed(tmp_path: Path):
         cwd=Path.cwd(),
     )
 
-    out_bed = tmp_path / "sample.filtered.bed"
+    out_bed = tmp_path / "sample.clean.mask.bed"
     assert out_bed.exists()
     assert _sum_bed(out_bed) == 2

@@ -78,7 +78,7 @@ def test_singer_keeps_genotypes_and_strips_nonref_alt(tmp_path: Path):
         cwd=Path.cwd(),
     )
 
-    clean = tmp_path / "out.clean"
+    clean = tmp_path / "out.clean.vcf"
     line = [l for l in clean.read_text(encoding="utf-8").splitlines() if not l.startswith("#")][0]
     parts = line.split("\t")
     # ALT should drop <NON_REF>, but genotype/sample fields should be preserved.
@@ -156,7 +156,7 @@ def test_split_alt_dot_and_nonref_only_are_invariant(tmp_path: Path):
     )
 
     inv = tmp_path / "out.inv"
-    clean = tmp_path / "out.clean"
+    clean = tmp_path / "out.clean.vcf"
 
     inv_records = _count_vcf_records(inv)
     clean_records = _count_vcf_records(clean)

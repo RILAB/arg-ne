@@ -7,7 +7,7 @@ Purpose
 Split a gVCF into three mutually exclusive outputs:
   <prefix>.inv       invariant sites (INFO="." or END=... spans)
   <prefix>.filtered  sites removed for quality/format reasons
-  <prefix>.clean     usable variant sites for downstream inference
+  <prefix>.clean.vcf usable variant sites for downstream inference
 
 The script also emits <prefix>.missing.bed, a mask of positions absent from
 the input gVCF (gaps between covered positions). This helps track accessiblity.
@@ -299,7 +299,7 @@ def main() -> None:
 
     out_inv = prefix + ".inv"
     out_filt = prefix + ".filtered"
-    out_clean = prefix + ".clean"
+    out_clean = prefix + ".clean.vcf"
     out_missing = prefix + ".missing.bed"
     out_missing_gt_stats = args.missing_gt_stats_out or (prefix + ".missing_gt_snp_by_sample.tsv")
     bgzip_output = args.bgzip_output
