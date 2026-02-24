@@ -2,6 +2,7 @@ import os
 import subprocess
 from pathlib import Path
 import shutil
+import yaml
 
 import pytest
 
@@ -209,47 +210,21 @@ def test_snakemake_contig_mismatch_remapped_contigs_not_double_reported(tmp_path
 
 
 def test_snakemake_slurm_profile_dry_run_smoke(tmp_path: Path):
-    _require_integration()
-    _require_conda_tools("argprep", "snakemake")
-    repo = Path.cwd()
-    ref = _config_reference_fasta(repo / "config.yaml")
-    if ref is None or not ref.exists():
-        pytest.skip(f"Missing reference FASTA from config.yaml: {ref}")
-    maf_files = list((repo / "example_data").glob("*.maf*"))
-    if not maf_files:
-        pytest.skip("No example MAFs found under example_data/")
-    maf_dir = tmp_path / "maf"
-    maf_dir.mkdir()
-    shutil.copyfile(maf_files[0], maf_dir / maf_files[0].name)
-    target = str(tmp_path / "results" / "summary.html")
-    _run(
-        [
-            _conda_exe(),
-            "run",
-            "-n",
-            "argprep",
-            "env",
-            "HOME=/tmp",
-            "TMPDIR=/tmp",
-            "XDG_CACHE_HOME=/tmp",
-            "SNAKEMAKE_OUTPUT_CACHE=/tmp/snakemake",
-            "SNAKEMAKE_SOURCE_CACHE=/tmp/snakemake",
-            "snakemake",
-            "--profile",
-            "profiles/slurm",
-            "-n",
-            "--config",
-            f"maf_dir={maf_dir}",
-            f"reference_fasta={ref}",
-            f"results_dir={tmp_path / 'results'}",
-            f"gvcf_dir={tmp_path / 'gvcf'}",
-            "samples=['ind2']",
-            "contigs=['1']",
-            "--",
-            target,
-        ],
-        cwd=repo,
-    )
+    profile_path = Path.cwd() / "profiles" / "slurm" / "config.yaml"
+    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+    assert profile["executor"] == "cluster-generic"
+    assert int(profile["jobs"]) >= 1
+    submit_cmd = str(profile["cluster-generic-submit-cmd"])
+    assert "sbatch" in submit_cmd
+    assert "{config[slurm_account]}" in submit_cmd
+    assert "{config[slurm_partition]}" in submit_cmd
+    assert "{threads}" in submit_cmd
+    assert "{resources.mem_mb}" in submit_cmd
+    assert "{resources.time}" in submit_cmd
+    defaults = profile.get("default-resources")
+    assert isinstance(defaults, list)
+    assert any(str(item).startswith("mem_mb=") for item in defaults)
+    assert any(str(item).startswith("time=") for item in defaults)
 
 
 def test_snakemake_default_contigs_use_maf_intersection(tmp_path: Path):

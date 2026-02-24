@@ -218,7 +218,7 @@ def main() -> None:
     filtered_gz = filtered_path + ".gz"
     if os.path.isfile(filtered_gz):
         filtered_path = filtered_gz
-    out_path = prefix + ".filtered.bed"
+    out_path = prefix + ".clean.mask.bed"
     dropped_bed = args.dropped_bed or os.path.join(os.path.dirname(prefix), "cleangVCF", "dropped_indels.bed")
     missing_bed = prefix + ".missing.bed"
     missing_bed_gz = missing_bed + ".gz"
@@ -280,10 +280,16 @@ def main() -> None:
     # If filtered is empty, try to infer target from other inputs.
     if target_chrom is None and os.path.isfile(inv_path):
         target_chrom = first_chrom_from_vcf(inv_path)
-    clean_path = prefix + ".clean"
+    clean_path = prefix + ".clean.vcf"
     clean_gz = clean_path + ".gz"
     if os.path.isfile(clean_gz):
         clean_path = clean_gz
+    elif not os.path.isfile(clean_path):
+        # Backward compatibility for legacy split outputs.
+        clean_path = prefix + ".clean"
+        clean_gz = clean_path + ".gz"
+        if os.path.isfile(clean_gz):
+            clean_path = clean_gz
     if target_chrom is None and os.path.isfile(clean_path):
         target_chrom = first_chrom_from_vcf(clean_path)
     if target_chrom is None and os.path.isfile(missing_bed):

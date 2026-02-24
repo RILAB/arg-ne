@@ -8,10 +8,10 @@
 
 set -euo pipefail
 
-# One job: split gVCF into .inv/.filtered/.clean and build mask bed.
+# One job: split gVCF into .inv/.filtered/.clean.vcf and build mask bed.
 usage() {
   echo "Usage: $0 -p <prefix> -d <depth> [--filter-multiallelic] [--no-gzip] [--no-merge]"
-  echo "  -p  Prefix for .inv/.filtered/.clean outputs"
+  echo "  -p  Prefix for .inv/.filtered/.clean.vcf outputs"
   echo "  -d  Depth cutoff passed to split.py"
   echo "  --filter-multiallelic  Filter multi-allelic SNPs in split.py"
   echo "  --no-gzip              Do not gzip split.py outputs (default)"
@@ -76,7 +76,7 @@ if [ "$NO_GZIP" != "true" ]; then
 fi
 SPLIT_ARGS+=("$INPUT_VCF")
 
-# Run split.py to produce .inv/.filtered/.clean/.missing.bed.
+# Run split.py to produce .inv/.filtered/.clean.vcf/.missing.bed.
 "${SPLIT_ARGS[@]}"
 
 # Build mask bed from filtered + missing + dropped indels.

@@ -24,7 +24,7 @@ FILL_GAPS = str(config.get("fill_gaps", "false")).lower()
 OUTPUT_JUST_GT = bool(config.get("outputJustGT", False))
 DROP_CUTOFF = config.get("drop_cutoff", "")
 FILTER_MULTIALLELIC = bool(config.get("filter_multiallelic", False))
-BGZIP_OUTPUT = bool(config.get("bgzip_output", False))
+BGZIP_OUTPUT = bool(config.get("bgzip_output", True))
 GENOMICSDB_VCF_BUFFER_SIZE = int(config.get("genomicsdb_vcf_buffer_size", 1048576))
 GENOMICSDB_SEGMENT_SIZE = int(config.get("genomicsdb_segment_size", 1048576))
 MAF_TO_GVCF_THREADS = int(config.get("maf_to_gvcf_threads", 2))
@@ -375,7 +375,7 @@ def _all_targets(_wc):
     contigs = _active_contigs()
     return (
         [str(_combined_out(c)) for c in contigs]
-        + [str(_split_prefix(c)) + ".filtered.bed" for c in contigs]
+        + [str(_split_prefix(c)) + MASK_BED_SUFFIX for c in contigs]
         + [str(_split_prefix(c)) + ".coverage.txt" for c in contigs]
         + [str(_accessibility_out(c)) for c in contigs]
         + [str(RESULTS_DIR / "summary.html")]
@@ -422,6 +422,8 @@ def _accessibility_out(contig):
 
 
 SPLIT_SUFFIX = ".gz" if BGZIP_OUTPUT else ""
+CLEAN_VCF_SUFFIX = ".clean.vcf" + SPLIT_SUFFIX
+MASK_BED_SUFFIX = ".clean.mask.bed"
 
 rule all:
     # Final targets: merged gVCFs plus filtered bed masks per contig.
@@ -494,11 +496,17 @@ def _summary_jobs() -> list[tuple[str, list[str]]]:
                 [
                     str(_split_prefix(c)) + suffix
                     for c in contigs
-                    for suffix in (".inv", ".filtered", ".clean", ".missing.bed", ".missing_gt_snp_by_sample.tsv")
+                    for suffix in (
+                        ".inv" + SPLIT_SUFFIX,
+                        ".filtered" + SPLIT_SUFFIX,
+                        CLEAN_VCF_SUFFIX,
+                        ".missing.bed" + SPLIT_SUFFIX,
+                        ".missing_gt_snp_by_sample.tsv",
+                    )
                 ],
             ),
             ("check_split_coverage", [str(_split_prefix(c)) + ".coverage.txt" for c in contigs]),
-            ("mask_bed", [str(_split_prefix(c)) + ".filtered.bed" for c in contigs]),
+            ("mask_bed", [str(_split_prefix(c)) + MASK_BED_SUFFIX for c in contigs]),
             ("make_accessibility", [str(_accessibility_out(c)) for c in contigs]),
         ]
     )
@@ -525,8 +533,8 @@ def _summary_temp_paths() -> set[str]:
 def _summary_arg_outputs() -> list[str]:
     contigs = _active_contigs()
     return (
-        [str(_split_prefix(c)) + ".clean" for c in contigs]
-        + [str(_split_prefix(c)) + ".filtered.bed" for c in contigs]
+        [str(_split_prefix(c)) + CLEAN_VCF_SUFFIX for c in contigs]
+        + [str(_split_prefix(c)) + MASK_BED_SUFFIX for c in contigs]
         + [str(_accessibility_out(c)) for c in contigs]
     )
 
@@ -535,10 +543,10 @@ rule summary_report:
     # Write an HTML summary of jobs, outputs, and warnings.
     input:
         combined=lambda wc: [str(_combined_out(c)) for c in _active_contigs()],
-        beds=lambda wc: [str(_split_prefix(c)) + ".filtered.bed" for c in _active_contigs()],
+        beds=lambda wc: [str(_split_prefix(c)) + MASK_BED_SUFFIX for c in _active_contigs()],
         invs=lambda wc: [str(_split_prefix(c)) + ".inv" + SPLIT_SUFFIX for c in _active_contigs()],
         filts=lambda wc: [str(_split_prefix(c)) + ".filtered" + SPLIT_SUFFIX for c in _active_contigs()],
-        cleans=lambda wc: [str(_split_prefix(c)) + ".clean" + SPLIT_SUFFIX for c in _active_contigs()],
+        cleans=lambda wc: [str(_split_prefix(c)) + CLEAN_VCF_SUFFIX for c in _active_contigs()],
         missing_gt_stats=lambda wc: [str(_split_prefix(c)) + ".missing_gt_snp_by_sample.tsv" for c in _active_contigs()],
         dropped=str(GVCF_DIR / "cleangVCF" / "dropped_indels.bed"),
     output:
@@ -826,7 +834,7 @@ rule split_gvcf:
     output:
         inv=str(RESULTS_DIR / "split" / ("combined.{contig}.inv" + SPLIT_SUFFIX)),
         filt=str(RESULTS_DIR / "split" / ("combined.{contig}.filtered" + SPLIT_SUFFIX)),
-        clean=str(RESULTS_DIR / "split" / ("combined.{contig}.clean" + SPLIT_SUFFIX)),
+        clean=str(RESULTS_DIR / "split" / ("combined.{contig}.clean.vcf" + SPLIT_SUFFIX)),
         missing=str(RESULTS_DIR / "split" / ("combined.{contig}.missing.bed" + SPLIT_SUFFIX)),
         missing_gt_stats=str(RESULTS_DIR / "split" / "combined.{contig}.missing_gt_snp_by_sample.tsv"),
     params:
@@ -853,9 +861,9 @@ rule split_gvcf:
 rule check_split_coverage:
     # Validate that clean + inv + filtered bed sum to contig length.
     input:
-        clean=lambda wc: str(_split_prefix(wc.contig)) + ".clean" + SPLIT_SUFFIX,
+        clean=lambda wc: str(_split_prefix(wc.contig)) + CLEAN_VCF_SUFFIX,
         inv=lambda wc: str(_split_prefix(wc.contig)) + ".inv" + SPLIT_SUFFIX,
-        bed=lambda wc: str(_split_prefix(wc.contig)) + ".filtered.bed",
+        bed=lambda wc: str(_split_prefix(wc.contig)) + MASK_BED_SUFFIX,
         fai=REF_FAI,
     output:
         report=str(RESULTS_DIR / "split" / "combined.{contig}.coverage.txt"),
@@ -877,7 +885,7 @@ rule mask_bed:
         missing=lambda wc: str(_split_prefix(wc.contig)) + ".missing.bed" + SPLIT_SUFFIX,
         dropped=str(GVCF_DIR / "cleangVCF" / "dropped_indels.bed"),
     output:
-        bed=str(RESULTS_DIR / "split" / "combined.{contig}.filtered.bed"),
+        bed=str(RESULTS_DIR / "split" / "combined.{contig}.clean.mask.bed"),
     params:
         prefix=lambda wc: str(_split_prefix(wc.contig)),
     shell:
@@ -892,7 +900,7 @@ rule mask_bed:
 rule make_accessibility:
     # Build boolean accessibility array from clean + inv VCFs per contig.
     input:
-        clean=lambda wc: str(_split_prefix(wc.contig)) + ".clean" + SPLIT_SUFFIX,
+        clean=lambda wc: str(_split_prefix(wc.contig)) + CLEAN_VCF_SUFFIX,
         inv=lambda wc: str(_split_prefix(wc.contig)) + ".inv" + SPLIT_SUFFIX,
         fai=REF_FAI,
     output:
