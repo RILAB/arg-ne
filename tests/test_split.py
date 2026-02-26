@@ -87,6 +87,35 @@ def test_singer_keeps_genotypes_and_strips_nonref_alt(tmp_path: Path):
     assert parts[9:] == ["0/1:0,1", "0/1:1,1", "0/0:1,0"]
 
 
+def test_clean_always_strips_nonref_alt_even_with_gt_only_format(tmp_path: Path):
+    gvcf = tmp_path / "in.gvcf"
+    gvcf.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\n"
+        "1\t1\t.\tA\tG,<NON_REF>\t.\t.\tDP=10\tGT\t0\n",
+        encoding="utf-8",
+    )
+
+    prefix = tmp_path / "out"
+    _run(
+        [
+            sys.executable,
+            str(Path("scripts") / "split.py"),
+            "--out-prefix",
+            str(prefix),
+            str(gvcf),
+        ],
+        cwd=Path.cwd(),
+    )
+
+    clean = tmp_path / "out.clean.vcf"
+    line = next(l for l in clean.read_text(encoding="utf-8").splitlines() if not l.startswith("#"))
+    parts = line.split("\t")
+    assert parts[4] == "G"
+    assert parts[8] == "GT"
+    assert parts[9] == "0"
+
+
 def _count_vcf_records(path: Path) -> int:
     return len([l for l in path.read_text(encoding="utf-8").splitlines() if l and not l.startswith("#")])
 
@@ -230,4 +259,34 @@ def test_add_reference_appends_ref_sample_to_clean_vcf(tmp_path: Path):
 
     assert header_parts[-1] == "REF"
     assert record_parts[8] == "GT:DP"
-    assert record_parts[9:] == ["0/1:10", "1/1:8", "0/0:."]
+    assert record_parts[9:] == ["0/1:10", "1/1:8", "0/0:1"]
+
+
+def test_add_reference_populates_ad_pl_dp_when_present(tmp_path: Path):
+    gvcf = tmp_path / "in.gvcf"
+    gvcf.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2\tS3\n"
+        "1\t1\t.\tA\tG\t.\t.\tDP=10\tGT:AD:PL:DP\t0/1:5,5:50,0,60:10\t1/1:0,9:80,40,0:9\t0/0:30,0:0,90,90:30\n",
+        encoding="utf-8",
+    )
+
+    prefix = tmp_path / "out"
+    _run(
+        [
+            sys.executable,
+            str(Path("scripts") / "split.py"),
+            "--add-reference",
+            "--out-prefix",
+            str(prefix),
+            str(gvcf),
+        ],
+        cwd=Path.cwd(),
+    )
+
+    clean_lines = (tmp_path / "out.clean.vcf").read_text(encoding="utf-8").splitlines()
+    record = next(line for line in clean_lines if line and not line.startswith("#"))
+    record_parts = record.split("\t")
+
+    assert record_parts[8] == "GT:AD:PL:DP"
+    assert record_parts[-1] == "0/0:30,0:0,90,90:30"
