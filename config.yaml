@@ -36,6 +36,7 @@ drop_cutoff: 4000
 # Optional: split.py switches. 
 filter_multiallelic: false
 bgzip_output: true
+add_reference: false
 
 # Optional: GenomicsDBImport tuning (buffer/segment sizes)
 genomicsdb_vcf_buffer_size: 10485760
