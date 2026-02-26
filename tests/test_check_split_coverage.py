@@ -12,7 +12,7 @@ def test_check_split_coverage_pass(tmp_path: Path):
     fai = tmp_path / "ref.fa.fai"
     fai.write_text("1\t10\t0\t0\t0\n", encoding="utf-8")
 
-    (tmp_path / "out.clean").write_text(
+    (tmp_path / "out.clean.vcf").write_text(
         "##fileformat=VCFv4.2\n"
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
         "1\t1\t.\tA\tC\t.\t.\tDP=1\n"
@@ -26,7 +26,7 @@ def test_check_split_coverage_pass(tmp_path: Path):
         "1\t4\t.\tA\t.\t.\t.\tDP=1\n",
         encoding="utf-8",
     )
-    (tmp_path / "out.filtered.bed").write_text(
+    (tmp_path / "out.clean.mask.bed").write_text(
         "1\t4\t10\n",
         encoding="utf-8",
     )
@@ -51,7 +51,7 @@ def test_check_split_coverage_overlap_fails(tmp_path: Path):
     fai = tmp_path / "ref.fa.fai"
     fai.write_text("1\t5\t0\t0\t0\n", encoding="utf-8")
 
-    (tmp_path / "out.clean").write_text(
+    (tmp_path / "out.clean.vcf").write_text(
         "##fileformat=VCFv4.2\n"
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
         "1\t1\t.\tA\tC\t.\t.\tDP=1\n",
@@ -64,7 +64,7 @@ def test_check_split_coverage_overlap_fails(tmp_path: Path):
         encoding="utf-8",
     )
     # Overlaps clean at pos 1.
-    (tmp_path / "out.filtered.bed").write_text(
+    (tmp_path / "out.clean.mask.bed").write_text(
         "1\t0\t2\n",
         encoding="utf-8",
     )
@@ -90,7 +90,7 @@ def test_check_split_coverage_empty_inputs_warns_not_fails(tmp_path: Path):
     fai = tmp_path / "ref.fa.fai"
     fai.write_text("SCAFFOLD_24\t100\t0\t0\t0\n", encoding="utf-8")
 
-    (tmp_path / "combined.SCAFFOLD_24.clean").write_text(
+    (tmp_path / "combined.SCAFFOLD_24.clean.vcf").write_text(
         "##fileformat=VCFv4.2\n"
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n",
         encoding="utf-8",
@@ -100,7 +100,7 @@ def test_check_split_coverage_empty_inputs_warns_not_fails(tmp_path: Path):
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n",
         encoding="utf-8",
     )
-    (tmp_path / "combined.SCAFFOLD_24.filtered.bed").write_text("", encoding="utf-8")
+    (tmp_path / "combined.SCAFFOLD_24.clean.mask.bed").write_text("", encoding="utf-8")
 
     _run(
         [
@@ -116,4 +116,4 @@ def test_check_split_coverage_empty_inputs_warns_not_fails(tmp_path: Path):
     report = tmp_path / "combined.SCAFFOLD_24.coverage.txt"
     text = report.read_text(encoding="utf-8")
     assert "chrom=SCAFFOLD_24" in text
-    assert "warning=No records found in clean/inv/filtered.bed" in text
+    assert "warning=No records found in clean/inv/clean.mask.bed" in text

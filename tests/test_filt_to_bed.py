@@ -1,5 +1,6 @@
 import subprocess
 import sys
+import gzip
 from pathlib import Path
 
 
@@ -36,7 +37,7 @@ def test_filt_to_bed_uses_ref_len(tmp_path: Path):
     dropped.write_text("", encoding="utf-8")
 
     (tmp_path / "sample.inv").write_text("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n", encoding="utf-8")
-    (tmp_path / "sample.clean").write_text("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n", encoding="utf-8")
+    (tmp_path / "sample.clean.vcf").write_text("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n", encoding="utf-8")
 
     _run(
         [
@@ -49,7 +50,7 @@ def test_filt_to_bed_uses_ref_len(tmp_path: Path):
         cwd=Path.cwd(),
     )
 
-    out_bed = tmp_path / "sample.filtered.bed"
+    out_bed = tmp_path / "sample.clean.mask.bed"
     assert out_bed.exists()
 
     # REF length 3 => interval length 3, plus missing interval length 1
@@ -79,7 +80,7 @@ def test_filt_to_bed_end_and_subtraction(tmp_path: Path):
         "1\t11\t.\tA\t.\t.\t.\tDP=10\tGT\t0\n",
         encoding="utf-8",
     )
-    (tmp_path / "sample.clean").write_text(
+    (tmp_path / "sample.clean.vcf").write_text(
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
         "1\t12\t.\tA\tG\t.\t.\tDP=10\tGT\t0/1\n",
         encoding="utf-8",
@@ -96,8 +97,44 @@ def test_filt_to_bed_end_and_subtraction(tmp_path: Path):
         cwd=Path.cwd(),
     )
 
-    out_bed = tmp_path / "sample.filtered.bed"
+    out_bed = tmp_path / "sample.clean.mask.bed"
     assert out_bed.exists()
 
     # Span 10-12 (3 bp), subtract 11 and 12 => only 1 bp remains.
     assert _sum_bed(out_bed) == 1
+
+
+def test_filt_to_bed_accepts_gz_missing_bed(tmp_path: Path):
+    prefix = tmp_path / "sample"
+
+    filtered = tmp_path / "sample.filtered.gz"
+    with gzip.open(filtered, "wt", encoding="utf-8") as handle:
+        handle.write(
+            "##fileformat=VCFv4.2\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+            "1\t10\t.\tA\tT\t.\t.\t.\n"
+        )
+
+    with gzip.open(tmp_path / "sample.missing.bed.gz", "wt", encoding="utf-8") as handle:
+        handle.write("1\t0\t1\n")
+
+    dropped = tmp_path / "dropped_indels.bed"
+    dropped.write_text("", encoding="utf-8")
+
+    (tmp_path / "sample.inv").write_text("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n", encoding="utf-8")
+    (tmp_path / "sample.clean.vcf").write_text("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n", encoding="utf-8")
+
+    _run(
+        [
+            sys.executable,
+            str(Path("scripts") / "filt_to_bed.py"),
+            str(prefix),
+            "--dropped-bed",
+            str(dropped),
+        ],
+        cwd=Path.cwd(),
+    )
+
+    out_bed = tmp_path / "sample.clean.mask.bed"
+    assert out_bed.exists()
+    assert _sum_bed(out_bed) == 2

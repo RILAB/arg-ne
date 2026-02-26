@@ -42,6 +42,7 @@ The pipeline can be run one of two ways, both from the repo root. **It is recomm
 A default SLURM profile is provided under `profiles/slurm/`. Edit `profiles/slurm/config.yaml` to customize sbatch options if needed.
 Defaults for account/partition and baseline resources are set in `config.yaml` (`slurm_account`, `slurm_partition`, `default_*`).
 SLURM stdout/stderr logs are written to `logs/slurm/` by default.
+The provided profile sets `jobs: 200` (Snakemake's max concurrent workflow jobs, equivalent to `-j 200`), which you can override on the command line if needed.
 
 ```bash
 snakemake --profile profiles/slurm
@@ -55,7 +56,7 @@ snakemake -j 8
 
 Common options:
 
-- `-j <N>`: number of parallel jobs
+- `-j <N>`: number of parallel Snakemake jobs (not per-job threads/CPUs)
 - `--rerun-incomplete`: clean up partial outputs
 - `--printshellcmds`: show executed commands
 - `--notemp`: keep temporary intermediates (see Notes)
@@ -71,21 +72,48 @@ By default the workflow uses these locations (override in `config.yaml`):
 - `results/combined/combined.<contig>.gvcf.gz` : merged gVCF per contig
 - `results/split/combined.<contig>.inv` : invariant sites
 - `results/split/combined.<contig>.filtered` : filtered sites
-- `results/split/combined.<contig>.clean` : clean sites
+- `results/split/combined.<contig>.clean.vcf.gz` : clean sites (bgzip-compressed by default)
 - `results/split/combined.<contig>.missing.bed` : missing positions
-- `results/split/combined.<contig>.filtered.bed` : merged mask bed
+- `results/split/combined.<contig>.clean.mask.bed` : merged mask bed
 - `results/split/combined.<contig>.coverage.txt` : split coverage validation summary
 - `results/split/combined.<contig>.accessible.npz` : boolean accessibility array (union of clean + invariant sites), for scikit-allel statistics
 - `results/summary.html` : HTML summary of jobs run, outputs created, and warnings
+  - Contig remaps (e.g., configured `chr1` remapped to reference contig `1`) are reported under the remap warning and are not repeated in the generic MAF-vs-reference mismatch warnings.
+
+## Testing
+
+Run from the repo root:
+
+```bash
+pytest -q
+```
+
+- Runs unit/fast tests by default.
+- Some integration tests are gated and skipped unless enabled.
+
+To run integration tests too:
+
+```bash
+RUN_INTEGRATION=1 pytest -q
+```
+
+- Requires the `argprep` conda environment and external tools used by the workflow (e.g., `snakemake`, `bcftools`, `tabix`, `bgzip`, `gatk`, `java`; some tests also need `samtools`).
+- These tests take longer and may run parts of the Snakemake workflow.
+
+For a quick SLURM-profile syntax/config sanity check without submitting jobs, use a dry run:
+
+```bash
+snakemake --profile profiles/slurm -n
+```
 
 ## Notes
 
-- If `bgzip_output: true`, the `.inv`, `.filtered`, `.clean`, and `.missing.bed` files will have a `.gz` suffix.
+- `bgzip_output` defaults to `true`; by default the `.inv`, `.filtered`, `.clean.vcf`, and `.missing.bed` files are bgzip-compressed (`.gz` suffix).
 - All gzipped outputs in this pipeline use bgzip (required for `tabix`).
 - `scripts/dropSV.py` removes indels larger than `drop_cutoff` (if set in `config.yaml`).
 - `scripts/split.py` supports `--filter-multiallelic` and `--bgzip-output` (toggle via `config.yaml`).
 - `scripts/filt_to_bed.py` merges `<prefix>.filtered`, `<prefix>.missing.bed`, and `dropped_indels.bed` into a final mask bed.
-- `make_accessibility` builds a per-contig accessibility array from the union of `combined.<contig>.clean` and `combined.<contig>.inv` using the reference `.fai` to size the array. The output is a compressed NumPy archive containing a boolean array named `mask`, intended for scikit-allel statistics.
+- `make_accessibility` builds a per-contig accessibility array from the union of `combined.<contig>.clean.vcf.gz` and `combined.<contig>.inv.gz` (default names) using the reference `.fai` to size the array. The output is a compressed NumPy archive containing a boolean array named `mask`, intended for scikit-allel statistics.
 - Ploidy is inferred from MAF block structure by default (max non-reference `s` lines per block, typically `1` for pairwise MAFs). You can override with `ploidy` in `config.yaml`.
 - Optional: enable `vt_normalize: true` in `config.yaml` to normalize merged gVCFs with `vt normalize` after `SelectVariants`.
 - If GenomicsDBImport fails with a buffer-size error, increase `genomicsdb_vcf_buffer_size` and `genomicsdb_segment_size` in `config.yaml` (set them above your longest gVCF line length).
@@ -104,7 +132,7 @@ By default the workflow uses these locations (override in `config.yaml`):
 - New/expanded validation and tests: split coverage checks, filtered‑bed tests, integration tests gated by `RUN_INTEGRATION=1`.
 - Example data regenerated via msprime with indels and missing data and AnchorWave‑style MAF formatting.
 - `check_split_coverage.py` now reports overlap intervals with file names to aid debugging.
-- `filt_to_bed.py` filters masks to the target contig, preventing cross‑contig lines in `combined.<contig>.filtered.bed`.
+- `filt_to_bed.py` filters masks to the target contig, preventing cross‑contig lines in `combined.<contig>.clean.mask.bed`.
 - SLURM default resources now read `default_*` from `config.yaml` instead of hardcoded profile values.
 
 ## Changes since v0.2
@@ -123,11 +151,11 @@ By default the workflow uses these locations (override in `config.yaml`):
 
 ### ARG estimation
 
-Use Nate Pope's SINGER Snakemake [pipeline](https://github.com/nspope/singer-snakemake) with `combined.<contig>.clean` and `combined.<contig>.filtered.bed` as inputs.
+Use Nate Pope's SINGER Snakemake [pipeline](https://github.com/nspope/singer-snakemake) with `combined.<contig>.clean.vcf.gz` and `combined.<contig>.clean.mask.bed` as inputs.
 
 ### Population genetic statistics 
 
-If you use scikit-allel, you can use the `combined.<contig>.clean` VCF and load the accessibility mask like this:
+If you use scikit-allel, you can use the `combined.<contig>.clean.vcf.gz` VCF and load the accessibility mask like this:
 
 ```python
 import numpy as np

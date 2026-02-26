@@ -1,6 +1,10 @@
+.DS_Store
+scripts/__pycache__/
+*.bak
 gvcf/*
 results/*
 logs/*
+logs/**
 example_data/*
 .snakemake/
 slurm-*.out

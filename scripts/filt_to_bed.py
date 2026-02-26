@@ -124,7 +124,7 @@ def read_bed_intervals(path: str, by_chrom: Dict[str, List[Tuple[int, int]]]) ->
     Load a BED file into a per-chromosome interval map.
     Assumes 0-based half-open intervals [start, end).
     """
-    with open(path, "rt", encoding="utf-8") as fin:
+    with open_maybe_gzip(path, "rt") as fin:
         for raw in fin:
             if not raw or raw.startswith("#"):
                 continue
@@ -218,9 +218,12 @@ def main() -> None:
     filtered_gz = filtered_path + ".gz"
     if os.path.isfile(filtered_gz):
         filtered_path = filtered_gz
-    out_path = prefix + ".filtered.bed"
+    out_path = prefix + ".clean.mask.bed"
     dropped_bed = args.dropped_bed or os.path.join(os.path.dirname(prefix), "cleangVCF", "dropped_indels.bed")
     missing_bed = prefix + ".missing.bed"
+    missing_bed_gz = missing_bed + ".gz"
+    if os.path.isfile(missing_bed_gz):
+        missing_bed = missing_bed_gz
     inv_path = prefix + ".inv"
     inv_gz = inv_path + ".gz"
     if os.path.isfile(inv_gz):
@@ -277,10 +280,16 @@ def main() -> None:
     # If filtered is empty, try to infer target from other inputs.
     if target_chrom is None and os.path.isfile(inv_path):
         target_chrom = first_chrom_from_vcf(inv_path)
-    clean_path = prefix + ".clean"
+    clean_path = prefix + ".clean.vcf"
     clean_gz = clean_path + ".gz"
     if os.path.isfile(clean_gz):
         clean_path = clean_gz
+    elif not os.path.isfile(clean_path):
+        # Backward compatibility for legacy split outputs.
+        clean_path = prefix + ".clean"
+        clean_gz = clean_path + ".gz"
+        if os.path.isfile(clean_gz):
+            clean_path = clean_gz
     if target_chrom is None and os.path.isfile(clean_path):
         target_chrom = first_chrom_from_vcf(clean_path)
     if target_chrom is None and os.path.isfile(missing_bed):
@@ -340,7 +349,7 @@ def first_chrom_from_vcf(path: str) -> str | None:
 
 
 def first_chrom_from_bed(path: str) -> str | None:
-    with open(path, "rt", encoding="utf-8") as fin:
+    with open_maybe_gzip(path, "rt") as fin:
         for raw in fin:
             if not raw or raw.startswith("#"):
                 continue

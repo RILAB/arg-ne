@@ -3,9 +3,9 @@
 Check that split outputs cover the full contig length.
 
 This script sums:
-  - .clean records (1 bp each)
+  - .clean.vcf records (1 bp each)
   - .inv records (1 bp each; END spans are expanded by split.py)
-  - .filtered.bed intervals (0-based, half-open)
+  - .clean.mask.bed intervals (0-based, half-open)
 
 and compares the total to the contig length from a reference .fai.
 """
@@ -205,14 +205,22 @@ def main() -> None:
     args = ap.parse_args()
 
     prefix = Path(args.prefix)
-    clean = prefix.with_suffix(prefix.suffix + ".clean")
+    clean = prefix.with_suffix(prefix.suffix + ".clean.vcf")
     inv = prefix.with_suffix(prefix.suffix + ".inv")
-    filtered_bed = prefix.with_suffix(prefix.suffix + ".filtered.bed")
+    filtered_bed = prefix.with_suffix(prefix.suffix + ".clean.mask.bed")
 
     if clean.with_suffix(clean.suffix + ".gz").exists():
         clean = clean.with_suffix(clean.suffix + ".gz")
+    elif not clean.exists():
+        # Backward compatibility for legacy split output naming.
+        clean = prefix.with_suffix(prefix.suffix + ".clean")
+        if clean.with_suffix(clean.suffix + ".gz").exists():
+            clean = clean.with_suffix(clean.suffix + ".gz")
     if inv.with_suffix(inv.suffix + ".gz").exists():
         inv = inv.with_suffix(inv.suffix + ".gz")
+    if not filtered_bed.exists():
+        # Backward compatibility for legacy mask naming.
+        filtered_bed = prefix.with_suffix(prefix.suffix + ".filtered.bed")
 
     if not clean.exists():
         sys.exit(f"ERROR: clean file not found: {clean}")
@@ -248,7 +256,7 @@ def main() -> None:
             "filtered_bed_bp=0\n"
             "total_bp=0\n"
             f"chrom_len={chrom_len}\n"
-            "warning=No records found in clean/inv/filtered.bed; likely absent in all gVCFs.\n",
+            "warning=No records found in clean/inv/clean.mask.bed; likely absent in all gVCFs.\n",
             encoding="utf-8",
         )
         return

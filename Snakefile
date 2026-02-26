@@ -13,6 +13,25 @@ wildcard_constraints:
     gvcf_base="[^/]+",
     contig="[^/]+"
 
+
+def _config_bool(value, default=False):
+    """
+    Parse booleans from YAML-native values or --config string overrides.
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "t", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "f", "no", "n", "off", ""}:
+            return False
+    raise ValueError(f"Invalid boolean config value: {value!r}")
+
 MAF_DIR = Path(config["maf_dir"]).resolve()
 ORIG_REF_FASTA = Path(config["reference_fasta"]).resolve()
 GVCF_DIR = Path(config.get("gvcf_dir", "gvcf")).resolve()
@@ -21,10 +40,11 @@ TASSEL_DIR = Path(config.get("tassel_dir", "tassel-5-standalone")).resolve()
 
 SAMPLE_SUFFIX = config.get("sample_suffix", "_anchorwave")
 FILL_GAPS = str(config.get("fill_gaps", "false")).lower()
-OUTPUT_JUST_GT = bool(config.get("outputJustGT", False))
+OUTPUT_JUST_GT = _config_bool(config.get("outputJustGT", False))
 DROP_CUTOFF = config.get("drop_cutoff", "")
-FILTER_MULTIALLELIC = bool(config.get("filter_multiallelic", False))
-BGZIP_OUTPUT = bool(config.get("bgzip_output", False))
+FILTER_MULTIALLELIC = _config_bool(config.get("filter_multiallelic", False))
+BGZIP_OUTPUT = _config_bool(config.get("bgzip_output", True))
+ADD_REFERENCE = _config_bool(config.get("add_reference", False))
 GENOMICSDB_VCF_BUFFER_SIZE = int(config.get("genomicsdb_vcf_buffer_size", 1048576))
 GENOMICSDB_SEGMENT_SIZE = int(config.get("genomicsdb_segment_size", 1048576))
 MAF_TO_GVCF_THREADS = int(config.get("maf_to_gvcf_threads", 2))
@@ -37,9 +57,8 @@ MERGE_CONTIG_MEM_MB = int(config.get("merge_contig_mem_mb", DEFAULT_MEM_MB))
 MERGE_CONTIG_JAVA_MEM_MB = max(256, int(MERGE_CONTIG_MEM_MB * 0.9))
 MERGE_CONTIG_TIME = str(config.get("merge_contig_time", config.get("default_time", "48:00:00")))
 DEFAULT_JAVA_MEM_MB = max(256, int(DEFAULT_MEM_MB * 0.9))
-VT_NORMALIZE = bool(config.get("vt_normalize", False))
+VT_NORMALIZE = _config_bool(config.get("vt_normalize", False))
 VT_PATH = str(config.get("vt_path", "vt"))
-MERGED_GENOTYPER = "selectvariants"
 
 workflow.global_resources["merge_gvcf_jobs"] = int(config.get("merge_gvcf_max_jobs", 4))
 
@@ -68,24 +87,49 @@ def _normalize_contig(name: str) -> str:
     return name if name else "0"
 
 
-def _read_maf_contigs() -> set[str]:
+def _maf_path_for_sample(sample: str) -> Path:
+    maf = MAF_DIR / f"{sample}.maf"
+    maf_gz = MAF_DIR / f"{sample}.maf.gz"
+    if maf.exists():
+        return maf
+    if maf_gz.exists():
+        return maf_gz
+    return maf
+
+
+def _read_maf_contigs(maf_path: Path) -> set[str]:
     contigs = set()
-    maf_files = list(MAF_DIR.glob("*.maf")) + list(MAF_DIR.glob("*.maf.gz"))
-    for maf in sorted(maf_files):
-        try:
-            if maf.name.endswith(".gz"):
-                handle = gzip.open(maf, "rt", encoding="utf-8")
-            else:
-                handle = maf.open("r", encoding="utf-8")
-            with handle:
-                for line in handle:
-                    if not line or line.startswith("#"):
-                        continue
-                    parts = line.split()
-                    if parts and parts[0] == "s" and len(parts) >= 2:
-                        contigs.add(parts[1])
-        except OSError:
-            continue
+    try:
+        if maf_path.name.endswith(".gz"):
+            handle = gzip.open(maf_path, "rt", encoding="utf-8")
+        else:
+            handle = maf_path.open("r", encoding="utf-8")
+        with handle:
+            first_src = None
+            for line in handle:
+                if not line or line.startswith("#"):
+                    continue
+                stripped = line.strip()
+                if not stripped:
+                    if first_src is not None:
+                        contigs.add(first_src)
+                        first_src = None
+                    continue
+                parts = stripped.split()
+                if not parts:
+                    continue
+                if parts[0] == "a":
+                    if first_src is not None:
+                        contigs.add(first_src)
+                    first_src = None
+                    continue
+                if parts[0] == "s" and len(parts) >= 2 and first_src is None:
+                    # Use first sequence src in each block as the reference-side contig.
+                    first_src = parts[1]
+            if first_src is not None:
+                contigs.add(first_src)
+    except OSError:
+        return set()
     return contigs
 
 
@@ -170,6 +214,23 @@ def _discover_samples():
     samples = set(glob_wildcards(maf_pattern).sample)
     samples.update(glob_wildcards(maf_gz_pattern).sample)
     return sorted(samples)
+
+
+def _read_maf_contig_sets(samples: list[str]) -> dict[str, set[str]]:
+    contigs_by_sample: dict[str, set[str]] = {}
+    for sample in samples:
+        maf_path = _maf_path_for_sample(sample)
+        contigs_by_sample[sample] = _read_maf_contigs(maf_path)
+    return contigs_by_sample
+
+
+def _contigs_not_in_all_mafs(contigs_by_sample: dict[str, set[str]]) -> list[str]:
+    if not contigs_by_sample:
+        return []
+    all_sets = list(contigs_by_sample.values())
+    union = set().union(*all_sets) if all_sets else set()
+    intersection = set.intersection(*all_sets) if all_sets else set()
+    return sorted(union - intersection)
 
 
 def _infer_ploidy_from_maf(maf_path: Path, max_blocks: int = 10000) -> int:
@@ -282,34 +343,14 @@ def _resolve_requested_contigs(
     return kept, dropped, remapped
 
 
-def _read_contigs():
-    orig_fai = REF_FASTA.with_suffix(REF_FASTA.suffix + ".fai")
-    if not orig_fai.exists():
-        raise ValueError(
-            "Reference FASTA index (.fai) not found. "
-            "Either run 'samtools faidx' on the reference or set 'contigs' in config.yaml."
-        )
-    target_fai = Path(REF_FAI)
-    if target_fai.exists():
-        ref_contigs = _read_fai_contigs(target_fai)
-    else:
-        ref_contigs = _read_fai_contigs(orig_fai)
-
-    if "contigs" in config:
-        requested = [str(c) for c in config["contigs"]]
-        kept, dropped, remapped = _resolve_requested_contigs(requested, ref_contigs)
-        if not kept:
-            raise ValueError(
-                "None of the configured contigs are present in reference .fai: "
-                + ", ".join(requested[:10])
-            )
-        return kept, dropped, requested, remapped
-    return ref_contigs, [], list(ref_contigs), []
-
-
 SAMPLES = _discover_samples()
 PLOIDY, PLOIDY_SOURCE, PLOIDY_FILE_VALUES, PLOIDY_WARNINGS = _resolve_ploidy(SAMPLES)
-CONTIGS, DROPPED_CONTIGS_NOT_IN_REF, REQUESTED_CONTIGS, REMAPPED_CONTIGS = _read_contigs()
+MAF_CONTIGS_BY_SAMPLE = _read_maf_contig_sets(SAMPLES)
+if MAF_CONTIGS_BY_SAMPLE:
+    MAF_CONTIG_INTERSECTION = sorted(set.intersection(*MAF_CONTIGS_BY_SAMPLE.values()))
+else:
+    MAF_CONTIG_INTERSECTION = []
+CONTIGS_NOT_IN_ALL_MAFS = _contigs_not_in_all_mafs(MAF_CONTIGS_BY_SAMPLE)
 
 GVCF_BASES = [f"{sample}To{REF_BASE}" for sample in SAMPLES]
 
@@ -330,7 +371,20 @@ def _active_contig_resolution() -> tuple[list[str], list[str], list[str], list[t
                 + ", ".join(requested[:10])
             )
         return kept, dropped, requested, remapped
-    return available, [], list(available), []
+
+    requested = list(MAF_CONTIG_INTERSECTION)
+    if not requested:
+        raise ValueError(
+            "No contigs are shared across all MAF files. "
+            "Set explicit 'contigs' in config.yaml to override."
+        )
+    kept, dropped, remapped = _resolve_requested_contigs(requested, available)
+    if not kept:
+        raise ValueError(
+            "No shared MAF contigs are present in renamed reference .fai. "
+            "Set explicit 'contigs' in config.yaml to override."
+        )
+    return kept, dropped, requested, remapped
 
 
 def _active_contigs() -> list[str]:
@@ -341,7 +395,7 @@ def _all_targets(_wc):
     contigs = _active_contigs()
     return (
         [str(_combined_out(c)) for c in contigs]
-        + [str(_split_prefix(c)) + ".filtered.bed" for c in contigs]
+        + [str(_split_prefix(c)) + MASK_BED_SUFFIX for c in contigs]
         + [str(_split_prefix(c)) + ".coverage.txt" for c in contigs]
         + [str(_accessibility_out(c)) for c in contigs]
         + [str(RESULTS_DIR / "summary.html")]
@@ -388,6 +442,8 @@ def _accessibility_out(contig):
 
 
 SPLIT_SUFFIX = ".gz" if BGZIP_OUTPUT else ""
+CLEAN_VCF_SUFFIX = ".clean.vcf" + SPLIT_SUFFIX
+MASK_BED_SUFFIX = ".clean.mask.bed"
 
 rule all:
     # Final targets: merged gVCFs plus filtered bed masks per contig.
@@ -460,11 +516,17 @@ def _summary_jobs() -> list[tuple[str, list[str]]]:
                 [
                     str(_split_prefix(c)) + suffix
                     for c in contigs
-                    for suffix in (".inv", ".filtered", ".clean", ".missing.bed")
+                    for suffix in (
+                        ".inv" + SPLIT_SUFFIX,
+                        ".filtered" + SPLIT_SUFFIX,
+                        CLEAN_VCF_SUFFIX,
+                        ".missing.bed" + SPLIT_SUFFIX,
+                        ".missing_gt_snp_by_sample.tsv",
+                    )
                 ],
             ),
             ("check_split_coverage", [str(_split_prefix(c)) + ".coverage.txt" for c in contigs]),
-            ("mask_bed", [str(_split_prefix(c)) + ".filtered.bed" for c in contigs]),
+            ("mask_bed", [str(_split_prefix(c)) + MASK_BED_SUFFIX for c in contigs]),
             ("make_accessibility", [str(_accessibility_out(c)) for c in contigs]),
         ]
     )
@@ -491,8 +553,8 @@ def _summary_temp_paths() -> set[str]:
 def _summary_arg_outputs() -> list[str]:
     contigs = _active_contigs()
     return (
-        [str(_split_prefix(c)) + ".clean" for c in contigs]
-        + [str(_split_prefix(c)) + ".filtered.bed" for c in contigs]
+        [str(_split_prefix(c)) + CLEAN_VCF_SUFFIX for c in contigs]
+        + [str(_split_prefix(c)) + MASK_BED_SUFFIX for c in contigs]
         + [str(_accessibility_out(c)) for c in contigs]
     )
 
@@ -501,10 +563,11 @@ rule summary_report:
     # Write an HTML summary of jobs, outputs, and warnings.
     input:
         combined=lambda wc: [str(_combined_out(c)) for c in _active_contigs()],
-        beds=lambda wc: [str(_split_prefix(c)) + ".filtered.bed" for c in _active_contigs()],
+        beds=lambda wc: [str(_split_prefix(c)) + MASK_BED_SUFFIX for c in _active_contigs()],
         invs=lambda wc: [str(_split_prefix(c)) + ".inv" + SPLIT_SUFFIX for c in _active_contigs()],
         filts=lambda wc: [str(_split_prefix(c)) + ".filtered" + SPLIT_SUFFIX for c in _active_contigs()],
-        cleans=lambda wc: [str(_split_prefix(c)) + ".clean" + SPLIT_SUFFIX for c in _active_contigs()],
+        cleans=lambda wc: [str(_split_prefix(c)) + CLEAN_VCF_SUFFIX for c in _active_contigs()],
+        missing_gt_stats=lambda wc: [str(_split_prefix(c)) + ".missing_gt_snp_by_sample.tsv" for c in _active_contigs()],
         dropped=str(GVCF_DIR / "cleangVCF" / "dropped_indels.bed"),
     output:
         report=str(RESULTS_DIR / "summary.html"),
@@ -526,6 +589,7 @@ rule summary_report:
         ploidy_source=PLOIDY_SOURCE,
         ploidy_file_values=PLOIDY_FILE_VALUES,
         ploidy_warnings=PLOIDY_WARNINGS,
+        contigs_not_in_all_mafs=CONTIGS_NOT_IN_ALL_MAFS,
         dropped_contigs_not_in_ref=lambda wc: _active_contig_resolution()[1],
         requested_contigs=lambda wc: _active_contig_resolution()[2],
         remapped_contigs=lambda wc: _active_contig_resolution()[3],
@@ -790,11 +854,14 @@ rule split_gvcf:
     output:
         inv=str(RESULTS_DIR / "split" / ("combined.{contig}.inv" + SPLIT_SUFFIX)),
         filt=str(RESULTS_DIR / "split" / ("combined.{contig}.filtered" + SPLIT_SUFFIX)),
-        clean=str(RESULTS_DIR / "split" / ("combined.{contig}.clean" + SPLIT_SUFFIX)),
+        clean=str(RESULTS_DIR / "split" / ("combined.{contig}.clean.vcf" + SPLIT_SUFFIX)),
         missing=str(RESULTS_DIR / "split" / ("combined.{contig}.missing.bed" + SPLIT_SUFFIX)),
+        missing_gt_stats=str(RESULTS_DIR / "split" / "combined.{contig}.missing_gt_snp_by_sample.tsv"),
     params:
         filter_multiallelic=FILTER_MULTIALLELIC,
         bgzip_output=BGZIP_OUTPUT,
+        add_reference=ADD_REFERENCE,
+        ploidy=PLOIDY,
         out_prefix=lambda wc: str(_split_prefix(wc.contig)),
     shell:
         """
@@ -807,6 +874,11 @@ rule split_gvcf:
         if [ "{params.bgzip_output}" = "True" ]; then
           cmd+=(--bgzip-output)
         fi
+        if [ "{params.add_reference}" = "True" ]; then
+          cmd+=(--add-reference)
+        fi
+        cmd+=(--reference-ploidy "{params.ploidy}")
+        cmd+=(--missing-gt-stats-out "{output.missing_gt_stats}")
         cmd+=("{input.gvcf}")
         "${{cmd[@]}}"
         """
@@ -815,9 +887,9 @@ rule split_gvcf:
 rule check_split_coverage:
     # Validate that clean + inv + filtered bed sum to contig length.
     input:
-        clean=lambda wc: str(_split_prefix(wc.contig)) + ".clean" + SPLIT_SUFFIX,
+        clean=lambda wc: str(_split_prefix(wc.contig)) + CLEAN_VCF_SUFFIX,
         inv=lambda wc: str(_split_prefix(wc.contig)) + ".inv" + SPLIT_SUFFIX,
-        bed=lambda wc: str(_split_prefix(wc.contig)) + ".filtered.bed",
+        bed=lambda wc: str(_split_prefix(wc.contig)) + MASK_BED_SUFFIX,
         fai=REF_FAI,
     output:
         report=str(RESULTS_DIR / "split" / "combined.{contig}.coverage.txt"),
@@ -839,7 +911,7 @@ rule mask_bed:
         missing=lambda wc: str(_split_prefix(wc.contig)) + ".missing.bed" + SPLIT_SUFFIX,
         dropped=str(GVCF_DIR / "cleangVCF" / "dropped_indels.bed"),
     output:
-        bed=str(RESULTS_DIR / "split" / "combined.{contig}.filtered.bed"),
+        bed=str(RESULTS_DIR / "split" / "combined.{contig}.clean.mask.bed"),
     params:
         prefix=lambda wc: str(_split_prefix(wc.contig)),
     shell:
@@ -854,7 +926,7 @@ rule mask_bed:
 rule make_accessibility:
     # Build boolean accessibility array from clean + inv VCFs per contig.
     input:
-        clean=lambda wc: str(_split_prefix(wc.contig)) + ".clean" + SPLIT_SUFFIX,
+        clean=lambda wc: str(_split_prefix(wc.contig)) + CLEAN_VCF_SUFFIX,
         inv=lambda wc: str(_split_prefix(wc.contig)) + ".inv" + SPLIT_SUFFIX,
         fai=REF_FAI,
     output:

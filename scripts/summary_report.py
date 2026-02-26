@@ -221,6 +221,86 @@ def _svg_scatter_plot(
     return "\n".join(parts)
 
 
+def _read_missing_gt_stats(paths: list[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for path in paths:
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as handle:
+                header = handle.readline()
+                if not header:
+                    continue
+                for line in handle:
+                    if not line.strip():
+                        continue
+                    parts = line.rstrip("\n").split("\t")
+                    if len(parts) < 2:
+                        continue
+                    sample = parts[0]
+                    try:
+                        value = int(parts[1])
+                    except ValueError:
+                        continue
+                    counts[sample] = counts.get(sample, 0) + value
+        except OSError:
+            continue
+    return counts
+
+
+def _svg_horizontal_bar_chart(labels: list[str], values: list[int], width: int = 900) -> str:
+    if not labels or not values or len(labels) != len(values):
+        return "<p>No data available.</p>"
+    max_label_len = max(len(label) for label in labels)
+    label_space = min(max(120, max_label_len * 8), 360)
+    bar_h = 18
+    gap = 8
+    margin = {"left": label_space + 20, "right": 70, "top": 24, "bottom": 30}
+    n = len(labels)
+    height = margin["top"] + margin["bottom"] + n * bar_h + max(n - 1, 0) * gap
+    plot_w = width - margin["left"] - margin["right"]
+    max_val = max(values)
+    if max_val <= 0:
+        max_val = 1
+
+    parts = [
+        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
+        'xmlns="http://www.w3.org/2000/svg" role="img">',
+        '<rect width="100%" height="100%" fill="white"/>',
+    ]
+    for idx, (label, value) in enumerate(zip(labels, values)):
+        y = margin["top"] + idx * (bar_h + gap)
+        bar_w = int(round((value / max_val) * plot_w))
+        parts.append(
+            f'<text x="{margin["left"] - 8}" y="{y + bar_h - 4}" text-anchor="end" '
+            f'font-size="11" font-family="sans-serif">{html.escape(label)}</text>'
+        )
+        parts.append(
+            f'<rect x="{margin["left"]}" y="{y}" width="{bar_w}" height="{bar_h}" fill="#4C78A8"/>'
+        )
+        parts.append(
+            f'<text x="{margin["left"] + bar_w + 6}" y="{y + bar_h - 4}" '
+            f'font-size="11" font-family="sans-serif">{value:,}</text>'
+        )
+
+    x0 = margin["left"]
+    y0 = height - margin["bottom"] + 2
+    parts.append(
+        f'<line x1="{x0}" y1="{y0}" x2="{x0 + plot_w}" y2="{y0}" stroke="#333" stroke-width="1"/>'
+    )
+    for i in range(5):
+        frac = i / 4
+        x = x0 + frac * plot_w
+        tick = int(round(frac * max_val))
+        parts.append(
+            f'<line x1="{x:.2f}" y1="{y0}" x2="{x:.2f}" y2="{y0 + 4}" stroke="#333" stroke-width="1"/>'
+        )
+        parts.append(
+            f'<text x="{x:.2f}" y="{y0 + 16}" text-anchor="middle" font-size="10" '
+            f'font-family="sans-serif">{tick:,}</text>'
+        )
+    parts.append("</svg>")
+    return "\n".join(parts)
+
+
 report_path = Path(snakemake.output.report)
 report_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -233,6 +313,7 @@ split_status_files = [str(p) for p in snakemake.params.split_status_files]
 dropped_contigs_not_in_ref = [str(c) for c in snakemake.params.dropped_contigs_not_in_ref]
 requested_contigs = [str(c) for c in snakemake.params.requested_contigs]
 remapped_contigs = [(str(a), str(b)) for a, b in snakemake.params.remapped_contigs]
+contigs_not_in_all_mafs = [str(c) for c in getattr(snakemake.params, "contigs_not_in_all_mafs", [])]
 ploidy = int(getattr(snakemake.params, "ploidy", 1))
 ploidy_source = str(getattr(snakemake.params, "ploidy_source", "unknown"))
 ploidy_file_values = {
@@ -248,8 +329,21 @@ log_paths.extend(sorted(Path("logs").rglob("*.err")))
 log_paths.extend(sorted(Path(".snakemake").rglob("*.log")))
 for log_path in log_paths:
     try:
+        in_shell_command_block = False
         with log_path.open("r", encoding="utf-8", errors="ignore") as handle:
             for line in handle:
+                # Snakemake logs include literal shell command text. Ignore WARNING
+                # tokens inside those blocks to avoid false positives from lines
+                # like: echo "WARNING: ..."
+                if line.startswith("Shell command:"):
+                    in_shell_command_block = True
+                    continue
+                if in_shell_command_block:
+                    if line.startswith(" ") or line.startswith("\t") or not line.strip():
+                        continue
+                    in_shell_command_block = False
+                if 'echo "WARNING:' in line or "echo 'WARNING:" in line:
+                    continue
                 if "WARNING" in line or "Warning" in line:
                     warnings.append(f"{log_path}: {line.rstrip()}")
     except OSError:
@@ -258,8 +352,10 @@ for log_path in log_paths:
 try:
     maf_contigs = _read_maf_contigs(Path(snakemake.params.maf_dir))
     ref_contigs = set(_read_fasta_contigs(Path(snakemake.params.orig_ref_fasta)))
-    missing_in_ref = sorted(set(maf_contigs) - ref_contigs)
-    missing_in_maf = sorted(ref_contigs - set(maf_contigs))
+    remapped_sources = {src for src, _dst in remapped_contigs}
+    remapped_targets = {dst for _src, dst in remapped_contigs}
+    missing_in_ref = sorted((set(maf_contigs) - ref_contigs) - remapped_sources)
+    missing_in_maf = sorted((ref_contigs - set(maf_contigs)) - remapped_targets)
     if missing_in_ref:
         warnings.append(
             "WARNING: MAF contigs not present in reference (showing up to 5): "
@@ -294,6 +390,17 @@ if remapped_contigs:
     warnings.append(
         "WARNING: Configured contigs were remapped to renamed-reference contigs: "
         f"{preview_pairs}{extra}"
+    )
+if contigs_not_in_all_mafs:
+    preview = ", ".join(contigs_not_in_all_mafs[:20])
+    extra = (
+        f" (+{len(contigs_not_in_all_mafs) - 20} more)"
+        if len(contigs_not_in_all_mafs) > 20
+        else ""
+    )
+    warnings.append(
+        "WARNING: Contigs not present in all MAF files were excluded from default "
+        f"processing: {preview}{extra}"
     )
 for message in ploidy_warnings:
     warnings.append(f"WARNING: Ploidy inference: {message}")
@@ -356,6 +463,17 @@ with report_path.open("w", encoding="utf-8") as handle:
             handle.write(
                 f"<li><code>{html.escape(maf_name)}</code>: inferred ploidy {value}</li>\n"
             )
+        handle.write("</ul>\n")
+
+    if contigs_not_in_all_mafs:
+        handle.write("<h2>Contigs Not In All MAF Files</h2>\n")
+        handle.write(
+            "<p><em>These contigs are not present in every MAF and are excluded "
+            "from default contig selection unless explicitly listed in config.</em></p>\n"
+        )
+        handle.write("<ul>\n")
+        for contig in contigs_not_in_all_mafs:
+            handle.write(f"<li><code>{html.escape(contig)}</code></li>\n")
         handle.write("</ul>\n")
 
     handle.write("<h2>Jobs run</h2>\n")
@@ -519,6 +637,21 @@ with report_path.open("w", encoding="utf-8") as handle:
                 y_label="Site count",
             )
         )
+
+    handle.write("<h2>SNP Sites Excluded From Clean By MAF File</h2>\n")
+    excluded_by_sample = _read_missing_gt_stats([str(p) for p in snakemake.input.missing_gt_stats])
+    if excluded_by_sample:
+        ranked = sorted(excluded_by_sample.items(), key=lambda kv: kv[1], reverse=True)
+        labels = [name for name, _ in ranked]
+        values = [value for _, value in ranked]
+        handle.write(
+            _svg_horizontal_bar_chart(
+                labels,
+                values,
+            )
+        )
+    else:
+        handle.write("<p>No missing-genotype SNP exclusions were recorded.</p>\n")
 
     handle.write("<h2>Warnings</h2>\n")
     if warnings:
