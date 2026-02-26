@@ -74,8 +74,8 @@ def test_random_position_membership():
     contig = "1"
     base = Path("results") / "split" / f"combined.{contig}"
     inv_path = base.with_suffix(base.suffix + ".inv")
-    clean_path = base.with_suffix(base.suffix + ".clean")
-    filtered_bed = base.with_suffix(base.suffix + ".filtered.bed")
+    clean_path = base.with_suffix(base.suffix + ".clean.vcf")
+    filtered_bed = base.with_suffix(base.suffix + ".clean.mask.bed")
     missing_bed = base.with_suffix(base.suffix + ".missing.bed")
     fai_path = Path("results") / "refs" / "reference_gvcf.fa.fai"
 

@@ -2,6 +2,7 @@ import os
 import subprocess
 from pathlib import Path
 import shutil
+import yaml
 
 import pytest
 
@@ -55,10 +56,7 @@ def _is_gzip(path: Path) -> bool:
         return False
 
 
-def test_snakemake_summary(tmp_path: Path):
-    _require_integration()
-    _require_conda_tools("argprep", "snakemake", "bcftools", "tabix", "bgzip", "gatk", "java")
-    repo = Path.cwd()
+def _run_example_summary(repo: Path, tmp_path: Path) -> str:
     ref = _config_reference_fasta(repo / "config.yaml")
     if ref is None or not ref.exists():
         pytest.skip(f"Missing reference FASTA from config.yaml: {ref}")
@@ -100,15 +98,10 @@ def test_snakemake_summary(tmp_path: Path):
         ],
         cwd=Path.cwd(),
     )
+    return Path(summary_target).read_text(encoding="utf-8", errors="ignore")
 
 
-def test_snakemake_contig_mismatch_handling(tmp_path: Path):
-    _require_integration()
-    _require_conda_tools(
-        "argprep", "snakemake", "samtools", "bcftools", "tabix", "bgzip", "gatk", "java"
-    )
-    repo = Path.cwd()
-
+def _run_contig_mismatch_summary(repo: Path, tmp_path: Path) -> str:
     # Build a reference with one real contig and one contig absent from MAFs.
     ref_src = repo / "example_data" / "ref.fa"
     if not ref_src.exists():
@@ -173,8 +166,27 @@ def test_snakemake_contig_mismatch_handling(tmp_path: Path):
         ],
         cwd=repo,
     )
+    return Path(summary_target).read_text(encoding="utf-8", errors="ignore")
 
-    summary_text = Path(summary_target).read_text(encoding="utf-8", errors="ignore")
+
+def test_snakemake_summary(tmp_path: Path):
+    _require_integration()
+    _require_conda_tools("argprep", "snakemake", "bcftools", "tabix", "bgzip", "gatk", "java")
+    repo = Path.cwd()
+    summary_text = _run_example_summary(repo, tmp_path)
+    assert "Workflow summary" in summary_text
+    assert "Ploidy" in summary_text
+    assert "Jobs run" in summary_text
+    assert "Warnings" in summary_text
+
+
+def test_snakemake_contig_mismatch_handling(tmp_path: Path):
+    _require_integration()
+    _require_conda_tools(
+        "argprep", "snakemake", "samtools", "bcftools", "tabix", "bgzip", "gatk", "java"
+    )
+    repo = Path.cwd()
+    summary_text = _run_contig_mismatch_summary(repo, tmp_path)
     assert "Configured contigs not present in reference .fai were skipped" in summary_text
     assert "requested_only_contig" in summary_text
     assert "Configured contigs were remapped to renamed-reference contigs" in summary_text
@@ -183,6 +195,109 @@ def test_snakemake_contig_mismatch_handling(tmp_path: Path):
     assert "maf_only_contig" in summary_text
     assert "Reference contigs not present in MAFs" in summary_text
     assert "fai_only_contig" in summary_text
+
+
+def test_snakemake_contig_mismatch_remapped_contigs_not_double_reported(tmp_path: Path):
+    _require_integration()
+    _require_conda_tools(
+        "argprep", "snakemake", "samtools", "bcftools", "tabix", "bgzip", "gatk", "java"
+    )
+    summary_text = _run_contig_mismatch_summary(Path.cwd(), tmp_path)
+    assert "Configured contigs were remapped to renamed-reference contigs" in summary_text
+    assert "chr1-&gt;1" in summary_text
+    assert "MAF contigs not present in reference (showing up to 5): chr1" not in summary_text
+    assert "Reference contigs not present in MAFs (showing up to 5): 1" not in summary_text
+
+
+def test_snakemake_slurm_profile_dry_run_smoke(tmp_path: Path):
+    profile_path = Path.cwd() / "profiles" / "slurm" / "config.yaml"
+    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+    assert profile["executor"] == "cluster-generic"
+    assert int(profile["jobs"]) >= 1
+    submit_cmd = str(profile["cluster-generic-submit-cmd"])
+    assert "sbatch" in submit_cmd
+    assert "{config[slurm_account]}" in submit_cmd
+    assert "{config[slurm_partition]}" in submit_cmd
+    assert "{threads}" in submit_cmd
+    assert "{resources.mem_mb}" in submit_cmd
+    assert "{resources.time}" in submit_cmd
+    defaults = profile.get("default-resources")
+    assert isinstance(defaults, list)
+    assert any(str(item).startswith("mem_mb=") for item in defaults)
+    assert any(str(item).startswith("time=") for item in defaults)
+
+
+def test_snakemake_default_contigs_use_maf_intersection(tmp_path: Path):
+    _require_integration()
+    _require_conda_tools(
+        "argprep", "snakemake", "samtools", "bcftools", "tabix", "bgzip", "gatk", "java"
+    )
+    repo = Path.cwd()
+
+    ref = tmp_path / "ref.fa"
+    ref.write_text(
+        ">1\n" + ("ACGT" * 50) + "\n" + ">2\n" + ("TGCA" * 50) + "\n",
+        encoding="utf-8",
+    )
+    _run([_conda_exe(), "run", "-n", "argprep", "samtools", "faidx", str(ref)], cwd=repo)
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    (maf_dir / "s1.maf").write_text(
+        "##maf version=1\n"
+        "a score=0\n"
+        "s 1 0 12 + 200 ACGTACGTACGT\n"
+        "s s1 0 12 + 200 ACGTACGTACGT\n"
+        "\n"
+        "a score=0\n"
+        "s 2 0 12 + 200 TGCATGCATGCA\n"
+        "s s1 0 12 + 200 TGCATGCATGCA\n",
+        encoding="utf-8",
+    )
+    (maf_dir / "s2.maf").write_text(
+        "##maf version=1\n"
+        "a score=0\n"
+        "s 1 0 12 + 200 ACGTACGTACGT\n"
+        "s s2 0 12 + 200 ACGTACGTACGT\n",
+        encoding="utf-8",
+    )
+
+    gvcf_dir = tmp_path / "gvcf"
+    results_dir = tmp_path / "results"
+    summary_target = str(results_dir / "summary.html")
+    _run(
+        [
+            _conda_exe(),
+            "run",
+            "-n",
+            "argprep",
+            "env",
+            "PATH=/opt/anaconda3/envs/argprep/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+            "HOME=/tmp",
+            "TMPDIR=/tmp",
+            "XDG_CACHE_HOME=/tmp",
+            "SNAKEMAKE_OUTPUT_CACHE=/tmp/snakemake",
+            "SNAKEMAKE_SOURCE_CACHE=/tmp/snakemake",
+            "snakemake",
+            "-j",
+            "2",
+            "--config",
+            f"maf_dir={maf_dir}",
+            f"reference_fasta={ref}",
+            f"gvcf_dir={gvcf_dir}",
+            f"results_dir={results_dir}",
+            "samples=['s1','s2']",
+            "--",
+            summary_target,
+        ],
+        cwd=repo,
+    )
+
+    summary_text = Path(summary_target).read_text(encoding="utf-8", errors="ignore")
+    assert "Contigs not present in all MAF files were excluded from default processing" in summary_text
+    assert "<code>2</code>" in summary_text
+    assert (results_dir / "combined" / "combined.1.gvcf.gz").exists()
+    assert not (results_dir / "combined" / "combined.2.gvcf.gz").exists()
 
 
 def test_maf_to_gvcf_single_sample(tmp_path: Path):
