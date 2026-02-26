@@ -13,6 +13,25 @@ wildcard_constraints:
     gvcf_base="[^/]+",
     contig="[^/]+"
 
+
+def _config_bool(value, default=False):
+    """
+    Parse booleans from YAML-native values or --config string overrides.
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "t", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "f", "no", "n", "off", ""}:
+            return False
+    raise ValueError(f"Invalid boolean config value: {value!r}")
+
 MAF_DIR = Path(config["maf_dir"]).resolve()
 ORIG_REF_FASTA = Path(config["reference_fasta"]).resolve()
 GVCF_DIR = Path(config.get("gvcf_dir", "gvcf")).resolve()
@@ -21,11 +40,11 @@ TASSEL_DIR = Path(config.get("tassel_dir", "tassel-5-standalone")).resolve()
 
 SAMPLE_SUFFIX = config.get("sample_suffix", "_anchorwave")
 FILL_GAPS = str(config.get("fill_gaps", "false")).lower()
-OUTPUT_JUST_GT = bool(config.get("outputJustGT", False))
+OUTPUT_JUST_GT = _config_bool(config.get("outputJustGT", False))
 DROP_CUTOFF = config.get("drop_cutoff", "")
-FILTER_MULTIALLELIC = bool(config.get("filter_multiallelic", False))
-BGZIP_OUTPUT = bool(config.get("bgzip_output", True))
-ADD_REFERENCE = bool(config.get("add_reference", False))
+FILTER_MULTIALLELIC = _config_bool(config.get("filter_multiallelic", False))
+BGZIP_OUTPUT = _config_bool(config.get("bgzip_output", True))
+ADD_REFERENCE = _config_bool(config.get("add_reference", False))
 GENOMICSDB_VCF_BUFFER_SIZE = int(config.get("genomicsdb_vcf_buffer_size", 1048576))
 GENOMICSDB_SEGMENT_SIZE = int(config.get("genomicsdb_segment_size", 1048576))
 MAF_TO_GVCF_THREADS = int(config.get("maf_to_gvcf_threads", 2))
@@ -38,7 +57,7 @@ MERGE_CONTIG_MEM_MB = int(config.get("merge_contig_mem_mb", DEFAULT_MEM_MB))
 MERGE_CONTIG_JAVA_MEM_MB = max(256, int(MERGE_CONTIG_MEM_MB * 0.9))
 MERGE_CONTIG_TIME = str(config.get("merge_contig_time", config.get("default_time", "48:00:00")))
 DEFAULT_JAVA_MEM_MB = max(256, int(DEFAULT_MEM_MB * 0.9))
-VT_NORMALIZE = bool(config.get("vt_normalize", False))
+VT_NORMALIZE = _config_bool(config.get("vt_normalize", False))
 VT_PATH = str(config.get("vt_path", "vt"))
 
 workflow.global_resources["merge_gvcf_jobs"] = int(config.get("merge_gvcf_max_jobs", 4))
