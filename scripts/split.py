@@ -24,6 +24,7 @@ import argparse
 import datetime
 import getpass
 import gzip
+import math
 import os
 import platform
 import shutil
@@ -177,29 +178,11 @@ def extract_end(info: str) -> int | None:
 
 
 # ------------------------------------------------------------
-# Optional reformat for SINGER (if needed)
+# Clean-output ALT normalization
 # ------------------------------------------------------------
-def needs_singer_reformat(format_field: str, sample_fields: list[str]) -> bool:
+def format_clean_record(cols: list[str]) -> str:
     """
-    Decide whether .clean records should be reformatted to single GTs.
-    Heuristics: AD present and any sample shows depth-style or multi-allele GT.
-    """
-    if "AD" not in format_field.split(":"):
-        return False
-    for sample in sample_fields:
-        if sample in (".", "./.", ".|."):
-            continue
-        if ":" in sample or "/" in sample or "|" in sample:
-            return True
-        if sample.isdigit() and int(sample) > 1:
-            return True
-    return False
-
-
-def format_for_singer(cols: list[str]) -> str:
-    """
-    For SINGER compatibility, remove <NON_REF> from ALT while preserving
-    original sample genotype fields.
+    Remove <NON_REF> from ALT while preserving all other fields.
     """
     out = list(cols)
     alts = [a for a in out[4].split(",") if a and a != "<NON_REF>"]
@@ -234,6 +217,7 @@ def infer_reference_gt(sample_fields: list[str], default_ploidy: int = 2) -> str
 
 def build_reference_sample_value(
     format_field: str,
+    alt_field: str,
     sample_fields: list[str],
     default_ploidy: int = 2,
 ) -> str:
@@ -245,9 +229,39 @@ def build_reference_sample_value(
         return "."
     fmt_keys = format_field.split(":")
     gt_value = infer_reference_gt(sample_fields, default_ploidy=default_ploidy)
+    gt_ploidy = max(gt_value.count("/") + gt_value.count("|") + 1, 1)
+    donor_values: dict[str, str] = {}
+    for sample in sample_fields:
+        sample_parts = sample.split(":")
+        if not sample_parts:
+            continue
+        sample_gt = sample_parts[0]
+        if not sample_gt or "." in sample_gt:
+            continue
+        sample_gt_norm = sample_gt.replace("|", "/")
+        gt_value_norm = gt_value.replace("|", "/")
+        if sample_gt_norm != gt_value_norm:
+            continue
+        for idx, key in enumerate(fmt_keys):
+            if key in {"AD", "PL", "DP"} and idx < len(sample_parts) and sample_parts[idx] not in ("", "."):
+                donor_values[key] = sample_parts[idx]
+        break
+    alt_count = 0 if alt_field in ("", ".") else len([a for a in alt_field.split(",") if a != ""])
+    ploidy = gt_ploidy
+    allele_count = 1 + alt_count
     out_fields: list[str] = []
     for key in fmt_keys:
-        out_fields.append(gt_value if key == "GT" else ".")
+        if key == "GT":
+            out_fields.append(gt_value)
+        elif key == "DP":
+            out_fields.append(donor_values.get("DP", "1"))
+        elif key == "AD":
+            out_fields.append(donor_values.get("AD", ",".join(["1"] + (["0"] * alt_count))))
+        elif key == "PL":
+            pl_len = math.comb(allele_count + ploidy - 1, ploidy)
+            out_fields.append(donor_values.get("PL", ",".join(["0"] + (["99"] * max(pl_len - 1, 0)))))
+        else:
+            out_fields.append(".")
     return ":".join(out_fields)
 
 
@@ -280,7 +294,6 @@ def main() -> None:
     filtered_bp = 0
     clean_bp = 0
     missing_bp = 0
-    singer_reformat: bool | None = None
     sample_names: list[str] = []
     missing_gt_snp_total = 0
     missing_gt_snp_by_sample: dict[str, int] = {}
@@ -397,7 +410,7 @@ def main() -> None:
         group_pos: int | None = None
 
         def flush_group(records: list[dict]) -> None:
-            nonlocal inv_bp, filtered_bp, clean_bp, singer_reformat
+            nonlocal inv_bp, filtered_bp, clean_bp
             nonlocal missing_gt_snp_total, missing_gt_snp_by_sample
             if not records:
                 return
@@ -429,23 +442,17 @@ def main() -> None:
                 records.clear()
                 return
             for r in records:
-                if singer_reformat is None:
-                    singer_reformat = needs_singer_reformat(r["cols"][8], r["cols"][9:])
-                    if singer_reformat:
-                        sys.stderr.write("Reformatting .clean output for SINGER by removing <NON_REF> alleles.\n")
                 clean_cols = list(r["cols"])
                 if add_reference and len(clean_cols) >= 9:
                     clean_cols.append(
                         build_reference_sample_value(
                             clean_cols[8],
+                            clean_cols[4],
                             clean_cols[9:],
                             default_ploidy=reference_ploidy,
                         )
                     )
-                if singer_reformat:
-                    f_clean.write(format_for_singer(clean_cols))
-                else:
-                    f_clean.write("\t".join(clean_cols) + "\n")
+                f_clean.write(format_clean_record(clean_cols))
                 clean_bp += 1
             records.clear()
         for raw in fin:
