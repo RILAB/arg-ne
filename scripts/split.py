@@ -178,29 +178,11 @@ def extract_end(info: str) -> int | None:
 
 
 # ------------------------------------------------------------
-# Optional reformat for SINGER (if needed)
+# Clean-output ALT normalization
 # ------------------------------------------------------------
-def needs_singer_reformat(format_field: str, sample_fields: list[str]) -> bool:
+def format_clean_record(cols: list[str]) -> str:
     """
-    Decide whether .clean records should be reformatted to single GTs.
-    Heuristics: AD present and any sample shows depth-style or multi-allele GT.
-    """
-    if "AD" not in format_field.split(":"):
-        return False
-    for sample in sample_fields:
-        if sample in (".", "./.", ".|."):
-            continue
-        if ":" in sample or "/" in sample or "|" in sample:
-            return True
-        if sample.isdigit() and int(sample) > 1:
-            return True
-    return False
-
-
-def format_for_singer(cols: list[str]) -> str:
-    """
-    For SINGER compatibility, remove <NON_REF> from ALT while preserving
-    original sample genotype fields.
+    Remove <NON_REF> from ALT while preserving all other fields.
     """
     out = list(cols)
     alts = [a for a in out[4].split(",") if a and a != "<NON_REF>"]
@@ -312,7 +294,6 @@ def main() -> None:
     filtered_bp = 0
     clean_bp = 0
     missing_bp = 0
-    singer_reformat: bool | None = None
     sample_names: list[str] = []
     missing_gt_snp_total = 0
     missing_gt_snp_by_sample: dict[str, int] = {}
@@ -429,7 +410,7 @@ def main() -> None:
         group_pos: int | None = None
 
         def flush_group(records: list[dict]) -> None:
-            nonlocal inv_bp, filtered_bp, clean_bp, singer_reformat
+            nonlocal inv_bp, filtered_bp, clean_bp
             nonlocal missing_gt_snp_total, missing_gt_snp_by_sample
             if not records:
                 return
@@ -461,10 +442,6 @@ def main() -> None:
                 records.clear()
                 return
             for r in records:
-                if singer_reformat is None:
-                    singer_reformat = needs_singer_reformat(r["cols"][8], r["cols"][9:])
-                    if singer_reformat:
-                        sys.stderr.write("Reformatting .clean output for SINGER by removing <NON_REF> alleles.\n")
                 clean_cols = list(r["cols"])
                 if add_reference and len(clean_cols) >= 9:
                     clean_cols.append(
@@ -475,10 +452,7 @@ def main() -> None:
                             default_ploidy=reference_ploidy,
                         )
                     )
-                if singer_reformat:
-                    f_clean.write(format_for_singer(clean_cols))
-                else:
-                    f_clean.write("\t".join(clean_cols) + "\n")
+                f_clean.write(format_clean_record(clean_cols))
                 clean_bp += 1
             records.clear()
         for raw in fin:
