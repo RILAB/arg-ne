@@ -1,3 +1,6 @@
+.DS_Store
+scripts/__pycache__/
+*.bak
 gvcf/*
 results/*
 logs/*
