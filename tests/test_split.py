@@ -198,3 +198,36 @@ def test_missing_gt_exclusion_stats_written_per_sample(tmp_path: Path):
     assert "sample\texcluded_snp_sites\ttotal_excluded_snp_sites" in stats
     assert "bad\t3\t3" in stats
     assert "good\t0\t3" in stats
+
+
+def test_add_reference_appends_ref_sample_to_clean_vcf(tmp_path: Path):
+    gvcf = tmp_path / "in.gvcf"
+    gvcf.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2\n"
+        "1\t1\t.\tA\tG\t.\t.\tDP=10\tGT:DP\t0/1:10\t1/1:8\n",
+        encoding="utf-8",
+    )
+
+    prefix = tmp_path / "out"
+    _run(
+        [
+            sys.executable,
+            str(Path("scripts") / "split.py"),
+            "--add-reference",
+            "--out-prefix",
+            str(prefix),
+            str(gvcf),
+        ],
+        cwd=Path.cwd(),
+    )
+
+    clean_lines = (tmp_path / "out.clean.vcf").read_text(encoding="utf-8").splitlines()
+    header = next(line for line in clean_lines if line.startswith("#CHROM"))
+    record = next(line for line in clean_lines if line and not line.startswith("#"))
+    header_parts = header.split("\t")
+    record_parts = record.split("\t")
+
+    assert header_parts[-1] == "REF"
+    assert record_parts[8] == "GT:DP"
+    assert record_parts[9:] == ["0/1:10", "1/1:8", "0/0:."]

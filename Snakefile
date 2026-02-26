@@ -25,6 +25,7 @@ OUTPUT_JUST_GT = bool(config.get("outputJustGT", False))
 DROP_CUTOFF = config.get("drop_cutoff", "")
 FILTER_MULTIALLELIC = bool(config.get("filter_multiallelic", False))
 BGZIP_OUTPUT = bool(config.get("bgzip_output", True))
+ADD_REFERENCE = bool(config.get("add_reference", False))
 GENOMICSDB_VCF_BUFFER_SIZE = int(config.get("genomicsdb_vcf_buffer_size", 1048576))
 GENOMICSDB_SEGMENT_SIZE = int(config.get("genomicsdb_segment_size", 1048576))
 MAF_TO_GVCF_THREADS = int(config.get("maf_to_gvcf_threads", 2))
@@ -840,6 +841,8 @@ rule split_gvcf:
     params:
         filter_multiallelic=FILTER_MULTIALLELIC,
         bgzip_output=BGZIP_OUTPUT,
+        add_reference=ADD_REFERENCE,
+        ploidy=PLOIDY,
         out_prefix=lambda wc: str(_split_prefix(wc.contig)),
     shell:
         """
@@ -852,6 +855,10 @@ rule split_gvcf:
         if [ "{params.bgzip_output}" = "True" ]; then
           cmd+=(--bgzip-output)
         fi
+        if [ "{params.add_reference}" = "True" ]; then
+          cmd+=(--add-reference)
+        fi
+        cmd+=(--reference-ploidy "{params.ploidy}")
         cmd+=(--missing-gt-stats-out "{output.missing_gt_stats}")
         cmd+=("{input.gvcf}")
         "${{cmd[@]}}"

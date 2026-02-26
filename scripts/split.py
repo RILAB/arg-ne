@@ -208,6 +208,49 @@ def format_for_singer(cols: list[str]) -> str:
     return "\t".join(out) + "\n"
 
 
+def infer_reference_gt(sample_fields: list[str], default_ploidy: int = 2) -> str:
+    """
+    Infer a reference-only GT string (e.g. 0/0, 0|0, or 0) from existing samples.
+    Defaults to diploid unphased if no usable GT is present.
+    """
+    for sample in sample_fields:
+        gt = sample.split(":", 1)[0]
+        if not gt or gt in (".", "./.", ".|."):
+            continue
+        if "|" in gt:
+            parts = gt.split("|")
+            if parts:
+                return "|".join(["0"] * len(parts))
+        if "/" in gt:
+            parts = gt.split("/")
+            if parts:
+                return "/".join(["0"] * len(parts))
+        return "0"
+    ploidy = max(int(default_ploidy), 1)
+    if ploidy == 1:
+        return "0"
+    return "/".join(["0"] * ploidy)
+
+
+def build_reference_sample_value(
+    format_field: str,
+    sample_fields: list[str],
+    default_ploidy: int = 2,
+) -> str:
+    """
+    Build a REF sample column that matches the FORMAT layout with GT fixed to reference.
+    Non-GT subfields are set to missing ('.').
+    """
+    if format_field in ("", "."):
+        return "."
+    fmt_keys = format_field.split(":")
+    gt_value = infer_reference_gt(sample_fields, default_ploidy=default_ploidy)
+    out_fields: list[str] = []
+    for key in fmt_keys:
+        out_fields.append(gt_value if key == "GT" else ".")
+    return ":".join(out_fields)
+
+
 def _update_info_dp(info: str, dp: int) -> str:
     """
     Replace or append INFO DP with the provided depth.
@@ -267,6 +310,17 @@ def main() -> None:
         help="Bgzip all output files (.gz)"
     )
     ap.add_argument(
+        "--add-reference",
+        action="store_true",
+        help='Append a synthetic "REF" sample to .clean.vcf records with GT set to reference alleles.',
+    )
+    ap.add_argument(
+        "--reference-ploidy",
+        type=int,
+        default=2,
+        help="Fallback ploidy for synthetic REF GT when sample GT ploidy cannot be inferred at a site (default: 2).",
+    )
+    ap.add_argument(
         "--fai",
         default=None,
         help="Reference .fai to fill missing BED gaps at contig ends.",
@@ -303,6 +357,8 @@ def main() -> None:
     out_missing = prefix + ".missing.bed"
     out_missing_gt_stats = args.missing_gt_stats_out or (prefix + ".missing_gt_snp_by_sample.tsv")
     bgzip_output = args.bgzip_output
+    add_reference = args.add_reference
+    reference_ploidy = max(args.reference_ploidy, 1)
 
     out_inv_final = out_inv + (".gz" if bgzip_output else "")
     out_filt_final = out_filt + (".gz" if bgzip_output else "")
@@ -377,10 +433,19 @@ def main() -> None:
                     singer_reformat = needs_singer_reformat(r["cols"][8], r["cols"][9:])
                     if singer_reformat:
                         sys.stderr.write("Reformatting .clean output for SINGER by removing <NON_REF> alleles.\n")
+                clean_cols = list(r["cols"])
+                if add_reference and len(clean_cols) >= 9:
+                    clean_cols.append(
+                        build_reference_sample_value(
+                            clean_cols[8],
+                            clean_cols[9:],
+                            default_ploidy=reference_ploidy,
+                        )
+                    )
                 if singer_reformat:
-                    f_clean.write(format_for_singer(r["cols"]))
+                    f_clean.write(format_for_singer(clean_cols))
                 else:
-                    f_clean.write(r["line"] + "\n")
+                    f_clean.write("\t".join(clean_cols) + "\n")
                 clean_bp += 1
             records.clear()
         for raw in fin:
@@ -413,6 +478,8 @@ def main() -> None:
                 elif raw.startswith("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO"):
                     header_cols = raw.rstrip("\n").split("\t")
                     sample_names = header_cols[9:] if len(header_cols) > 9 else []
+                    if add_reference and "REF" in sample_names:
+                        sys.exit('ERROR: --add-reference requested, but input already contains a sample named "REF".')
                     # First: inject provenance headers (##...).
                     for ln in prov_lines:
                         f_inv.write(ln)
@@ -428,7 +495,10 @@ def main() -> None:
                     # Third: write the #CHROM header line itself.
                     f_inv.write(raw)
                     f_filt.write(raw)
-                    f_clean.write(raw)
+                    if add_reference:
+                        f_clean.write(raw.rstrip("\n") + "\tREF\n")
+                    else:
+                        f_clean.write(raw)
                     headers_written = True
                 else:
                     header_buffer.append(raw)
