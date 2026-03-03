@@ -1,6 +1,6 @@
 # ARG Pipeline (Snakemake)
 
-This repository provides a Snakemake workflow that converts AnchorWave MAFs into per-contig merged gVCFs, splits them into clean/filtered/invariant sets, and produces mask bedfiles for downstream ARG inference (see [logic.md](https://github.com/RILAB/argprep/blob/main/logic.md) for details). Written with the assistance of [Codex]([url](https://openai.com/codex/)).
+This repository provides a Snakemake workflow that converts AnchorWave MAFs into per-contig merged gVCFs, splits them into clean/filtered/invariant sets, and produces mask bedfiles for downstream ARG inference (see [logic.md](https://github.com/RILAB/argprep/blob/main/logic.md) for details). Written with the assistance of [Codex](https://openai.com/codex/).
 
 ## Requirements
 
