@@ -40,7 +40,7 @@ The pipeline can be run one of two ways, both from the repo root. **It is recomm
 ### On Slurm 
 
 A default SLURM profile is provided under `profiles/slurm/`. Edit `profiles/slurm/config.yaml` to customize sbatch options if needed.
-Defaults for account/partition and baseline resources are set in `config.yaml` (`slurm_account`, `slurm_partition`, `default_*`).
+Defaults for account/partition and baseline resources are set in `config.yaml` (`slurm_account`, `slurm_partition`, `default_mem_mb`, `default_time`, and `default_threads`). You will need to change these to match your own SLURM setup.
 SLURM stdout/stderr logs are written to `logs/slurm/` by default.
 The provided profile sets `jobs: 200` (Snakemake's max concurrent workflow jobs, equivalent to `-j 200`), which you can override on the command line if needed.
 
