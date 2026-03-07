@@ -1,6 +1,6 @@
 # ARG Pipeline (Snakemake)
 
-This repository provides a Snakemake workflow that converts AnchorWave MAFs into per-contig merged gVCFs, splits them into clean/filtered/invariant sets, and produces mask bedfiles for downstream ARG inference (see [logic.md](https://github.com/RILAB/argprep/blob/main/logic.md) for details).
+This repository provides a Snakemake workflow that converts AnchorWave MAFs into per-contig merged gVCFs, splits them into clean/filtered/invariant sets, and produces mask bedfiles for downstream ARG inference (see [logic.md](https://github.com/RILAB/argprep/blob/main/logic.md) for details). Written with the assistance of [Codex](https://openai.com/codex/).
 
 ## Requirements
 
@@ -40,7 +40,7 @@ The pipeline can be run one of two ways, both from the repo root. **It is recomm
 ### On Slurm 
 
 A default SLURM profile is provided under `profiles/slurm/`. Edit `profiles/slurm/config.yaml` to customize sbatch options if needed.
-Defaults for account/partition and baseline resources are set in `config.yaml` (`slurm_account`, `slurm_partition`, `default_*`).
+Defaults for account/partition and baseline resources are set in `config.yaml` (`slurm_account`, `slurm_partition`, `default_mem_mb`, `default_time`, and `default_threads`). You will need to change these to match your own SLURM setup.
 SLURM stdout/stderr logs are written to `logs/slurm/` by default.
 The provided profile sets `jobs: 200` (Snakemake's max concurrent workflow jobs, equivalent to `-j 200`), which you can override on the command line if needed.
 
@@ -108,6 +108,8 @@ snakemake --profile profiles/slurm -n
 
 ## Notes
 
+- You will need to change the SLURM account and partition in `config.yaml`.
+- The default memory setting of 20GB may be too small -- if your run is failing with OOM (out of memory), you may need to set this to a larger value.
 - `bgzip_output` defaults to `true`; by default the `.inv`, `.filtered`, `.clean.vcf`, and `.missing.bed` files are bgzip-compressed (`.gz` suffix).
 - All gzipped outputs in this pipeline use bgzip (required for `tabix`).
 - `scripts/dropSV.py` removes indels larger than `drop_cutoff` (if set in `config.yaml`).
@@ -121,31 +123,6 @@ snakemake --profile profiles/slurm -n
 - Resource knobs (memory/threads/time) and GenomicsDB buffer sizes are configurable in `config.yaml` (e.g., `merge_contig_mem_mb`, `maf_to_gvcf_*`, `genomicsdb_*`).
 - To cap concurrent contig-merge jobs on SLURM, set `merge_gvcf_max_jobs` in `config.yaml` (used by the profile as a global `merge_gvcf_jobs` resource limit).
 - To cap the SLURM array concurrency for `scripts/maf_to_gvcf.sh`, set `maf_to_gvcf_array_max_jobs` in `config.yaml` (default 4).
-
-## Changes since v0.1
-
-- Added HTML summary report with embedded SVG histograms and expanded output details.
-- Split logic tightened: clean sites now require all samples called; missing GTs are routed to filtered.
-- Invariant/filtered/clean outputs are enforced as mutually exclusive per position; filtered BED spans now respect END/REF lengths and subtract inv/clean.
-- Merged gVCFs are produced via GATK SelectVariants with genotype calling; TASSEL `outputJustGT` default set to `false` to retain likelihoods for calling.
-- Added accessibility mask generation (`combined.<contig>.accessible.npz`) for scikit‑allel workflows.
-- New/expanded validation and tests: split coverage checks, filtered‑bed tests, integration tests gated by `RUN_INTEGRATION=1`.
-- Example data regenerated via msprime with indels and missing data and AnchorWave‑style MAF formatting.
-- `check_split_coverage.py` now reports overlap intervals with file names to aid debugging.
-- `filt_to_bed.py` filters masks to the target contig, preventing cross‑contig lines in `combined.<contig>.clean.mask.bed`.
-- SLURM default resources now read `default_*` from `config.yaml` instead of hardcoded profile values.
-
-## Changes since v0.2
-
-- Moved HTML summary generation into `scripts/summary_report.py` and simplified `Snakefile`.
-- Corrected example MAF inputs so `example_data/*.maf.gz` are valid gzip files.
-- Updated split classification so `ALT=<NON_REF>`-only records are treated as invariant.
-- Updated SINGER clean-output formatting to strip `<NON_REF>` while preserving genotype/sample fields.
-- Added `logic.md` with detailed site-routing/filtering logic and concrete examples.
-- Added `results/split/combined.<contig>.coverage.txt` to documented workflow outputs.
-- Added split-test coverage for invariant/nonref and genotype-preserving clean formatting.
-- Updated SLURM profile default resources to numeric values to avoid resource conversion/submission errors.
-- Added merge_gvcf_max_jobs pipeline concurrency control
 
 ## Downstream Uses
 
