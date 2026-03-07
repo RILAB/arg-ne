@@ -5,6 +5,7 @@
 - Expanded HTML summary reporting with stronger warning parsing, MAF-vs-reference contig mismatch warnings, ploidy reporting, and a missing-genotype exclusion histogram.
 - Fixed summary warning de-duplication so contigs reported in "Configured contigs were remapped..." are not also repeated in generic MAF/reference mismatch warnings.
 - Improved split/filter/mask robustness: refined split classification and filtered BED span handling, gzip/bgzip split-output support, gzipped missing-BED input support, and better empty-coverage handling in `check_split_coverage.py`.
+- `.clean.vcf` output now always strips `<NON_REF>` from `ALT`, including GT-only (`outputJustGT=true`) runs.
 - Added optional `add_reference` split output behavior: when enabled, `.clean.vcf` appends a synthetic `REF` sample with reference-only genotypes (`0`, `0/0`, etc.) and fallback ploidy matching the pipeline-resolved ploidy.
 - Fixed boolean config parsing in `Snakefile` so CLI overrides like `--config bgzip_output=false add_reference=true` are interpreted correctly instead of treating non-empty strings as truthy.
 - Added accessibility mask outputs (`combined.<contig>.accessible.npz`) for scikit-allel workflows and documented downstream use.
