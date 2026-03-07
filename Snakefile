@@ -47,7 +47,8 @@ BGZIP_OUTPUT = _config_bool(config.get("bgzip_output", True))
 ADD_REFERENCE = _config_bool(config.get("add_reference", False))
 GENOMICSDB_VCF_BUFFER_SIZE = int(config.get("genomicsdb_vcf_buffer_size", 1048576))
 GENOMICSDB_SEGMENT_SIZE = int(config.get("genomicsdb_segment_size", 1048576))
-MAF_TO_GVCF_THREADS = int(config.get("maf_to_gvcf_threads", config.get("default_threads", 2)))DEFAULT_MEM_MB = 48000
+MAF_TO_GVCF_THREADS = int(config.get("maf_to_gvcf_threads", config.get("default_threads", 2)))
+DEFAULT_MEM_MB = 48000
 SPLIT_GVCF_MEM_MB = int(config.get("split_gvcf_mb", DEFAULT_MEM_MB))
 MAF_TO_GVCF_MEM_MB = int(config.get("maf_to_gvcf_mem_mb", DEFAULT_MEM_MB))
 MAF_TO_GVCF_TIME = str(config.get("maf_to_gvcf_time", config.get("default_time", "24:00:00")))
@@ -746,6 +747,7 @@ if VT_NORMALIZE:
             """
             set -euo pipefail
             mkdir -p "{COMBINED_RAW_DIR}"
+            mkdir -p "$(dirname "{output.workspace}")"
             present_args=()
             for gvcf in {input.gvcfs}; do
               status="${{gvcf%.gvcf.gz}}.status.tsv"
@@ -799,6 +801,7 @@ else:
             """
             set -euo pipefail
             mkdir -p "{COMBINED_DIR}"
+            mkdir -p "$(dirname "{output.workspace}")"
             present_args=()
             for gvcf in {input.gvcfs}; do
               status="${{gvcf%.gvcf.gz}}.status.tsv"
