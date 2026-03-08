@@ -8,10 +8,10 @@ def _run_summary_report(tmp_path: Path, monkeypatch) -> str:
     repo = Path(__file__).resolve().parents[1]
     monkeypatch.chdir(tmp_path)
 
-    # The report scans these locations for warnings.
+    # The report scans only explicitly provided current-run warning logs.
     (tmp_path / "logs").mkdir()
-    (tmp_path / ".snakemake").mkdir()
-    (tmp_path / "logs" / "test.log").write_text(
+    warning_log = tmp_path / "logs" / "test.log"
+    warning_log.write_text(
         "Shell command:\n"
         '  echo "WARNING: from shell command block should be ignored"\n'
         'echo "WARNING: explicit echo line should be ignored"\n'
@@ -71,6 +71,7 @@ def _run_summary_report(tmp_path: Path, monkeypatch) -> str:
             maf_dir=str(maf_dir),
             orig_ref_fasta=str(ref_fa),
             ref_fai=str(ref_fai),
+            warning_logs=[str(warning_log)],
         ),
     )
 
@@ -102,4 +103,3 @@ def test_summary_report_warning_filters_and_deduplicates(monkeypatch, tmp_path: 
     assert "real log warning should be kept" in html
     assert "from shell command block should be ignored" not in html
     assert "explicit echo line should be ignored" not in html
-

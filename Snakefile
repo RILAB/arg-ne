@@ -586,6 +586,7 @@ rule summary_report:
             for contig in _active_contigs()
             for base in GVCF_BASES
         ],
+        warning_logs=lambda wc: [str(Path("logs") / "tassel" / f"{sample}.log") for sample in SAMPLES],
         ploidy=PLOIDY,
         ploidy_source=PLOIDY_SOURCE,
         ploidy_file_values=PLOIDY_FILE_VALUES,
