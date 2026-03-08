@@ -322,11 +322,7 @@ ploidy_file_values = {
 ploidy_warnings = [str(w) for w in list(getattr(snakemake.params, "ploidy_warnings", []))]
 
 warnings = []
-log_paths = []
-log_paths.extend(sorted(Path("logs").rglob("*.log")))
-log_paths.extend(sorted(Path("logs").rglob("*.out")))
-log_paths.extend(sorted(Path("logs").rglob("*.err")))
-log_paths.extend(sorted(Path(".snakemake").rglob("*.log")))
+log_paths = [Path(p) for p in list(getattr(snakemake.params, "warning_logs", []))]
 for log_path in log_paths:
     try:
         in_shell_command_block = False
