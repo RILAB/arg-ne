@@ -72,12 +72,12 @@ def test_random_position_membership():
     _require_integration()
 
     contig = "1"
-    base = Path("results") / "split" / f"combined.{contig}"
+    base = Path("example_results") / "split" / f"combined.{contig}"
     inv_path = base.with_suffix(base.suffix + ".inv")
     clean_path = base.with_suffix(base.suffix + ".clean.vcf")
     filtered_bed = base.with_suffix(base.suffix + ".clean.mask.bed")
     missing_bed = base.with_suffix(base.suffix + ".missing.bed")
-    fai_path = Path("results") / "refs" / "reference_gvcf.fa.fai"
+    fai_path = Path("example_results") / "refs" / "reference_gvcf.fa.fai"
 
     for path in (inv_path, clean_path, filtered_bed, missing_bed, fai_path):
         if not path.exists():

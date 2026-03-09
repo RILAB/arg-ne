@@ -47,16 +47,17 @@ BGZIP_OUTPUT = _config_bool(config.get("bgzip_output", True))
 ADD_REFERENCE = _config_bool(config.get("add_reference", False))
 GENOMICSDB_VCF_BUFFER_SIZE = int(config.get("genomicsdb_vcf_buffer_size", 1048576))
 GENOMICSDB_SEGMENT_SIZE = int(config.get("genomicsdb_segment_size", 1048576))
-MAF_TO_GVCF_THREADS = int(config.get("maf_to_gvcf_threads", 2))
-DEFAULT_MEM_MB = int(config.get("default_mem_mb", 48000))
+MAF_TO_GVCF_THREADS = int(config.get("maf_to_gvcf_threads", config.get("default_threads", 2)))
+DEFAULT_MEM_MB = 48000
+SPLIT_GVCF_MEM_MB = int(config.get("split_gvcf_mb", DEFAULT_MEM_MB))
 MAF_TO_GVCF_MEM_MB = int(config.get("maf_to_gvcf_mem_mb", DEFAULT_MEM_MB))
-MAF_TO_GVCF_TIME = str(config.get("maf_to_gvcf_time", "24:00:00"))
-MAF_TO_GVCF_JAVA_MEM_MB = max(256, int(MAF_TO_GVCF_MEM_MB * 0.9))
+MAF_TO_GVCF_TIME = str(config.get("maf_to_gvcf_time", config.get("default_time", "24:00:00")))
+MAF_TO_GVCF_JAVA_MEM_MB = max(8000, int(MAF_TO_GVCF_MEM_MB * 0.9))
 MERGE_CONTIG_THREADS = int(config.get("merge_contig_threads", config.get("default_threads", 2)))
 MERGE_CONTIG_MEM_MB = int(config.get("merge_contig_mem_mb", DEFAULT_MEM_MB))
-MERGE_CONTIG_JAVA_MEM_MB = max(256, int(MERGE_CONTIG_MEM_MB * 0.9))
+MERGE_CONTIG_JAVA_MEM_MB = max(8000, int(MERGE_CONTIG_MEM_MB * 0.9))
 MERGE_CONTIG_TIME = str(config.get("merge_contig_time", config.get("default_time", "48:00:00")))
-DEFAULT_JAVA_MEM_MB = max(256, int(DEFAULT_MEM_MB * 0.9))
+SPLIT_GVCF_JAVA_MEM_MB = max(8000, int(SPLIT_GVCF_MEM_MB * 0.9))
 VT_NORMALIZE = _config_bool(config.get("vt_normalize", False))
 VT_PATH = str(config.get("vt_path", "vt"))
 
@@ -585,6 +586,7 @@ rule summary_report:
             for contig in _active_contigs()
             for base in GVCF_BASES
         ],
+        warning_logs=lambda wc: [str(Path("logs") / "tassel" / f"{sample}.log") for sample in SAMPLES],
         ploidy=PLOIDY,
         ploidy_source=PLOIDY_SOURCE,
         ploidy_file_values=PLOIDY_FILE_VALUES,
@@ -684,13 +686,15 @@ rule split_gvcf_by_contig:
         gvcf=temp(str(GVCF_DIR / "cleangVCF" / "split_gvcf" / "{gvcf_base}.{contig}.gvcf.gz")),
         tbi=temp(str(GVCF_DIR / "cleangVCF" / "split_gvcf" / "{gvcf_base}.{contig}.gvcf.gz.tbi")),
         status=str(GVCF_DIR / "cleangVCF" / "split_gvcf" / "{gvcf_base}.{contig}.status.tsv"),
+    resources:
+        mem_mb=SPLIT_GVCF_MEM_MB,
     shell:
         """
         set -euo pipefail
         mkdir -p "{GVCF_DIR}/cleangVCF/split_gvcf"
         tmp_vcf="{output.gvcf}.tmp.vcf"
         if bcftools index -s "{input.gvcf}" | cut -f1 | grep -Fxq "{wildcards.contig}"; then
-          gatk --java-options "-Xmx{DEFAULT_JAVA_MEM_MB}m -Xms{DEFAULT_JAVA_MEM_MB}m" SelectVariants \
+          gatk --java-options "-Xmx{SPLIT_GVCF_JAVA_MEM_MB}m -Xms{SPLIT_GVCF_JAVA_MEM_MB}m" SelectVariants \
             -R "{input.ref}" \
             -V "{input.gvcf}" \
             -L "{wildcards.contig}" \
@@ -744,6 +748,7 @@ if VT_NORMALIZE:
             """
             set -euo pipefail
             mkdir -p "{COMBINED_RAW_DIR}"
+            mkdir -p "$(dirname "{output.workspace}")"
             present_args=()
             for gvcf in {input.gvcfs}; do
               status="${{gvcf%.gvcf.gz}}.status.tsv"
@@ -797,6 +802,7 @@ else:
             """
             set -euo pipefail
             mkdir -p "{COMBINED_DIR}"
+            mkdir -p "$(dirname "{output.workspace}")"
             present_args=()
             for gvcf in {input.gvcfs}; do
               status="${{gvcf%.gvcf.gz}}.status.tsv"
