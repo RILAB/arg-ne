@@ -15,20 +15,6 @@ def _run(cmd, cwd):
     subprocess.run(cmd, cwd=cwd, check=True)
 
 
-def _config_reference_fasta(config_path: Path) -> Path | None:
-    if not config_path.exists():
-        return None
-    for raw in config_path.read_text(encoding="utf-8", errors="ignore").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("reference_fasta:"):
-            value = line.split(":", 1)[1].strip().strip('"').strip("'")
-            if value:
-                return (config_path.parent / value).resolve()
-    return None
-
-
 def _require_integration():
     if os.getenv("RUN_INTEGRATION") != "1":
         pytest.skip("Set RUN_INTEGRATION=1 to run integration tests.")
@@ -48,6 +34,55 @@ def _require_conda_tools(env: str, *tools: str):
         pytest.skip(f"Missing required tools in conda env {env}: {', '.join(missing)}")
 
 
+def _snakemake_env_args(tmp_path: Path) -> list[str]:
+    runtime = tmp_path / "runtime"
+    home = runtime / "home"
+    tmpdir = runtime / "tmp"
+    xdg_cache = runtime / "xdg-cache"
+    snakemake_cache = runtime / "snakemake-cache"
+    source_cache = snakemake_cache / "source"
+    output_cache = snakemake_cache / "output"
+    for d in (home, tmpdir, xdg_cache, source_cache, output_cache):
+        d.mkdir(parents=True, exist_ok=True)
+    return [
+        f"HOME={home}",
+        f"TMPDIR={tmpdir}",
+        f"XDG_CACHE_HOME={xdg_cache}",
+        f"SNAKEMAKE_OUTPUT_CACHE={output_cache}",
+        f"SNAKEMAKE_SOURCE_CACHE={source_cache}",
+    ]
+
+
+def _run_snakemake(repo: Path, tmp_path: Path, config_args: list[str], target: Path):
+    workdir = tmp_path / "workdir"
+    workdir.mkdir(parents=True, exist_ok=True)
+    _run(
+        [
+            _conda_exe(),
+            "run",
+            "-n",
+            "argprep",
+            "env",
+            *_snakemake_env_args(tmp_path),
+            "snakemake",
+            "-s",
+            str(repo / "Snakefile"),
+            "--directory",
+            str(workdir),
+            "--configfile",
+            str(repo / "config.yaml"),
+            "-j",
+            "2",
+            "--config",
+            f"tassel_dir={repo / 'tassel-5-standalone'}",
+            *config_args,
+            "--",
+            str(target),
+        ],
+        cwd=repo,
+    )
+
+
 def _is_gzip(path: Path) -> bool:
     try:
         with path.open("rb") as handle:
@@ -57,9 +92,9 @@ def _is_gzip(path: Path) -> bool:
 
 
 def _run_example_summary(repo: Path, tmp_path: Path) -> str:
-    ref = _config_reference_fasta(repo / "config.yaml")
-    if ref is None or not ref.exists():
-        pytest.skip(f"Missing reference FASTA from config.yaml: {ref}")
+    ref = repo / "example_data" / "ref.fa"
+    if not ref.exists():
+        pytest.skip(f"Missing example reference FASTA: {ref}")
     maf_files = list((repo / "example_data").glob("*.maf*"))
     if not maf_files:
         pytest.skip("No example MAFs found under example_data/")
@@ -74,31 +109,21 @@ def _run_example_summary(repo: Path, tmp_path: Path) -> str:
         else:
             dest_name = maf.name
         shutil.copyfile(maf, maf_dir / dest_name)
-    summary_target = str(Path.cwd() / "results" / "summary.html")
-    _run(
+    gvcf_dir = tmp_path / "gvcf"
+    results_dir = tmp_path / "results"
+    summary_target = results_dir / "summary.html"
+    _run_snakemake(
+        repo,
+        tmp_path,
         [
-            _conda_exe(),
-            "run",
-            "-n",
-            "argprep",
-            "env",
-            "PATH=/opt/anaconda3/envs/argprep/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-            "HOME=/tmp",
-            "TMPDIR=/tmp",
-            "XDG_CACHE_HOME=/tmp",
-            "SNAKEMAKE_OUTPUT_CACHE=/tmp/snakemake",
-            "SNAKEMAKE_SOURCE_CACHE=/tmp/snakemake",
-            "snakemake",
-            "-j",
-            "2",
-            "--config",
             f"maf_dir={maf_dir}",
-            "--",
-            summary_target,
+            f"reference_fasta={ref}",
+            f"gvcf_dir={gvcf_dir}",
+            f"results_dir={results_dir}",
         ],
-        cwd=Path.cwd(),
+        summary_target,
     )
-    return Path(summary_target).read_text(encoding="utf-8", errors="ignore")
+    return summary_target.read_text(encoding="utf-8", errors="ignore")
 
 
 def _run_contig_mismatch_summary(repo: Path, tmp_path: Path) -> str:
@@ -137,36 +162,21 @@ def _run_contig_mismatch_summary(repo: Path, tmp_path: Path) -> str:
 
     gvcf_dir = tmp_path / "gvcf"
     results_dir = tmp_path / "results"
-    summary_target = str(results_dir / "summary.html")
-    _run(
+    summary_target = results_dir / "summary.html"
+    _run_snakemake(
+        repo,
+        tmp_path,
         [
-            _conda_exe(),
-            "run",
-            "-n",
-            "argprep",
-            "env",
-            "PATH=/opt/anaconda3/envs/argprep/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-            "HOME=/tmp",
-            "TMPDIR=/tmp",
-            "XDG_CACHE_HOME=/tmp",
-            "SNAKEMAKE_OUTPUT_CACHE=/tmp/snakemake",
-            "SNAKEMAKE_SOURCE_CACHE=/tmp/snakemake",
-            "snakemake",
-            "-j",
-            "2",
-            "--config",
             f"maf_dir={maf_dir}",
             f"reference_fasta={ref}",
             f"gvcf_dir={gvcf_dir}",
             f"results_dir={results_dir}",
             "samples=['ind2']",
             "contigs=['chr1','requested_only_contig']",
-            "--",
-            summary_target,
         ],
-        cwd=repo,
+        summary_target,
     )
-    return Path(summary_target).read_text(encoding="utf-8", errors="ignore")
+    return summary_target.read_text(encoding="utf-8", errors="ignore")
 
 
 def test_snakemake_summary(tmp_path: Path):
@@ -264,33 +274,18 @@ def test_snakemake_default_contigs_use_maf_intersection(tmp_path: Path):
 
     gvcf_dir = tmp_path / "gvcf"
     results_dir = tmp_path / "results"
-    summary_target = str(results_dir / "summary.html")
-    _run(
+    summary_target = results_dir / "summary.html"
+    _run_snakemake(
+        repo,
+        tmp_path,
         [
-            _conda_exe(),
-            "run",
-            "-n",
-            "argprep",
-            "env",
-            "PATH=/opt/anaconda3/envs/argprep/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-            "HOME=/tmp",
-            "TMPDIR=/tmp",
-            "XDG_CACHE_HOME=/tmp",
-            "SNAKEMAKE_OUTPUT_CACHE=/tmp/snakemake",
-            "SNAKEMAKE_SOURCE_CACHE=/tmp/snakemake",
-            "snakemake",
-            "-j",
-            "2",
-            "--config",
             f"maf_dir={maf_dir}",
             f"reference_fasta={ref}",
             f"gvcf_dir={gvcf_dir}",
             f"results_dir={results_dir}",
             "samples=['s1','s2']",
-            "--",
-            summary_target,
         ],
-        cwd=repo,
+        summary_target,
     )
 
     summary_text = Path(summary_target).read_text(encoding="utf-8", errors="ignore")
