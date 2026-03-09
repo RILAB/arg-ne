@@ -1,10 +1,10 @@
-# Paths
-maf_dir: parv
-reference_fasta: parv/b73.fa
+le_gvcf# Paths
+maf_dir: example_data
+reference_fasta: example_data/ref.fa
 
 # Output locations
-gvcf_dir: parv_gvcf
-results_dir: parv_results
+gvcf_dir: example_gvcf
+results_dir: example_results
 
 # Tools
 # tassel_dir defaults to "tassel-5-standalone" if omitted
@@ -34,11 +34,12 @@ outputJustGT: true
 drop_cutoff: 10000000
 
 # Optional: split.py switches. 
+# Add reference adds the reference genome as an individual in the vcf
 filter_multiallelic: false
 bgzip_output: true
 add_reference: false
 
-# Optional: GenomicsDBImport tuning (buffer/segment sizes)
+# Optional: GenomicsDBImport tuning (buffer/segment sizes). 
 genomicsdb_vcf_buffer_size: 10485760
 genomicsdb_segment_size: 10485760
 
@@ -55,8 +56,8 @@ merge_gvcf_max_jobs: 4
 default_threads: 2
 split_gvcf_mb: 128000
 default_time: "48:00:00"
-slurm_account: jrigrp
-slurm_partition: high
+slurm_account: account
+slurm_partition: partition
 
 # Rule-specific resources
 # maf_to_gvcf_threads: 2
