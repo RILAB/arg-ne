@@ -302,7 +302,7 @@ def main() -> None:
 
 
 def first_chrom_from_vcf(path: str) -> str | None:
-    with open_maybe_gzip(path, "rt") as fin:
+    with open_text(path, "rt") as fin:
         for raw in fin:
             if not raw or raw.startswith("#"):
                 continue
@@ -313,7 +313,7 @@ def first_chrom_from_vcf(path: str) -> str | None:
 
 
 def first_chrom_from_bed(path: str) -> str | None:
-    with open_maybe_gzip(path, "rt") as fin:
+    with open_text(path, "rt") as fin:
         for raw in fin:
             if not raw or raw.startswith("#"):
                 continue

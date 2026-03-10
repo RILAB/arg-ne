@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 from snakemake.io import glob_wildcards
-from scripts.common import open_fasta, read_fasta_contigs, read_maf_contigs
+from scripts.common import open_fasta, open_text, read_fasta_contigs, read_maf_contigs
 
 configfile: "config.yaml"
 
@@ -100,9 +100,8 @@ def _maf_path_for_sample(sample: str) -> Path:
 
 def _read_gvcf_contigs(path: Path) -> list[str]:
     contigs = []
-    opener = gzip.open if path.suffix == ".gz" else open
     try:
-        with opener(path, "rt", encoding="utf-8") as handle:
+        with open_text(path, "rt") as handle:
             for line in handle:
                 if line.startswith("##contig=<ID="):
                     entry = line.strip().split("ID=", 1)[1]
@@ -181,13 +180,12 @@ def _contigs_not_in_all_mafs(contigs_by_sample: dict[str, set[str]]) -> list[str
 
 
 def _infer_ploidy_from_maf(maf_path: Path, max_blocks: int = 10000) -> int:
-    opener = gzip.open if maf_path.suffix == ".gz" else open
     max_non_ref = 0
     block_seq_count = 0
     blocks_seen = 0
 
     try:
-        with opener(maf_path, "rt", encoding="utf-8", errors="ignore") as handle:
+        with open_text(maf_path, "rt", errors="ignore") as handle:
             for line in handle:
                 if not line or line.startswith("#"):
                     continue
