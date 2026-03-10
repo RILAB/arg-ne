@@ -1,3 +1,12 @@
+## Changes since v0.4
+
+- Clean VCF handling was tightened: `<NON_REF>` is now always stripped from `ALT`, and reference-donor `AD/PL/DP` values are copied where needed for cleaner downstream outputs.
+- Summary warning collection was fixed to use only current-run logs passed by Snakemake, avoiding leakage of historical warnings from old `.snakemake` and SLURM logs.
+- Pipeline defaults were updated in `config.yaml`/`Snakefile`, including example-data-oriented path defaults and associated resource/default cleanup.
+- Integration tests were adjusted to be more portable (not relying on hardcoded `PATH` behavior), and test coverage was updated across split/integration/summary-related tests.
+- Random-position integration test paths were aligned with example-output conventions and related test defaults were refreshed.
+- README/changelog documentation was refreshed with expanded SLURM usage notes, formatting fixes, and changelog updates.
+
 ## Changes since v0.3
 
 - Added/expanded contig handling across the workflow: reference renaming from gVCF/MAF contigs, numeric-suffix normalization, configured-contig remapping (e.g. `chr1` -> `1`), filtering contigs to the reference `.fai`, and defaulting to the shared MAF-contig intersection when `contigs:` is not set.
