@@ -1,4 +1,4 @@
-le_gvcf# Paths
+# Paths
 maf_dir: example_data
 reference_fasta: example_data/ref.fa
 
