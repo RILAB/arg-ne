@@ -1,68 +1,19 @@
 #!/usr/bin/env python3
 from pathlib import Path
-import gzip
 import html
 
+try:
+    from scripts.common import open_text, read_fasta_contigs, read_maf_contigs
+except ModuleNotFoundError:
+    import sys
 
-def _open_text(path: str):
-    if str(path).endswith(".gz"):
-        return gzip.open(path, "rt")
-    return open(path, "r", encoding="utf-8", errors="ignore")
-
-
-def _open_fasta(path: Path):
-    if path.suffix == ".gz":
-        return gzip.open(path, "rt", encoding="utf-8")
-    return path.open("r", encoding="utf-8")
-
-
-def _read_fasta_contigs(path: Path) -> list[str]:
-    contigs = []
-    try:
-        with _open_fasta(path) as handle:
-            for line in handle:
-                if line.startswith(">"):
-                    contigs.append(line[1:].strip().split()[0])
-    except OSError:
-        pass
-    return contigs
-
-
-def _read_maf_contigs(maf_dir: Path) -> set[str]:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from scripts.common import open_text, read_fasta_contigs, read_maf_contigs
+def _read_maf_dir_contigs(maf_dir: Path) -> set[str]:
     contigs = set()
     maf_files = list(maf_dir.glob("*.maf")) + list(maf_dir.glob("*.maf.gz"))
     for maf in sorted(maf_files):
-        try:
-            if maf.name.endswith(".gz"):
-                handle = gzip.open(maf, "rt", encoding="utf-8")
-            else:
-                handle = maf.open("r", encoding="utf-8")
-            with handle:
-                first_src = None
-                for line in handle:
-                    if not line or line.startswith("#"):
-                        continue
-                    stripped = line.strip()
-                    if not stripped:
-                        if first_src is not None:
-                            contigs.add(first_src)
-                            first_src = None
-                        continue
-                    parts = stripped.split()
-                    if not parts:
-                        continue
-                    if parts[0] == "a":
-                        if first_src is not None:
-                            contigs.add(first_src)
-                        first_src = None
-                        continue
-                    if parts[0] == "s" and len(parts) >= 2 and first_src is None:
-                        # Use the first sequence source per alignment block (reference-side in our MAFs).
-                        first_src = parts[1]
-                if first_src is not None:
-                    contigs.add(first_src)
-        except OSError:
-            continue
+        contigs.update(read_maf_contigs(maf))
     return contigs
 
 
@@ -101,7 +52,7 @@ def _add_bed_counts(
     window: int,
 ) -> None:
     try:
-        with _open_text(path) as f_in:
+        with open_text(path, "rt", errors="ignore") as f_in:
             for line in f_in:
                 if not line or line.startswith("#"):
                     continue
@@ -346,8 +297,8 @@ for log_path in log_paths:
         continue
 
 try:
-    maf_contigs = _read_maf_contigs(Path(snakemake.params.maf_dir))
-    ref_contigs = set(_read_fasta_contigs(Path(snakemake.params.orig_ref_fasta)))
+    maf_contigs = _read_maf_dir_contigs(Path(snakemake.params.maf_dir))
+    ref_contigs = set(read_fasta_contigs(Path(snakemake.params.orig_ref_fasta)))
     remapped_sources = {src for src, _dst in remapped_contigs}
     remapped_targets = {dst for _src, dst in remapped_contigs}
     missing_in_ref = sorted((set(maf_contigs) - ref_contigs) - remapped_sources)

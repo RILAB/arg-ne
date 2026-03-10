@@ -18,6 +18,12 @@ import sys
 from pathlib import Path
 from typing import Iterable, List, Tuple
 
+try:
+    from scripts.common import merge_intervals
+except ModuleNotFoundError:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from scripts.common import merge_intervals
+
 
 def eprint(msg: str) -> None:
     # Centralized stderr printing for errors.
@@ -93,24 +99,6 @@ def read_bcftools_query(path: Path) -> Iterable[Tuple[str, int, str, str]]:
     if code != 0:
         eprint(err.strip() or f"bcftools query failed for {path}")
         sys.exit(1)
-
-
-def merge_intervals(intervals: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
-    # Merge overlapping or adjacent half-open intervals.
-    if not intervals:
-        return []
-    intervals.sort()
-    merged: List[Tuple[int, int]] = []
-    cur_s, cur_e = intervals[0]
-    for s, e in intervals[1:]:
-        if s <= cur_e:
-            if e > cur_e:
-                cur_e = e
-        else:
-            merged.append((cur_s, cur_e))
-            cur_s, cur_e = s, e
-    merged.append((cur_s, cur_e))
-    return merged
 
 
 def write_bed(path: Path, intervals_by_chrom: dict[str, List[Tuple[int, int]]]) -> None:

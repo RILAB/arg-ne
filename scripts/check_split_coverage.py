@@ -13,30 +13,15 @@ and compares the total to the contig length from a reference .fai.
 from __future__ import annotations
 
 import argparse
-import gzip
 import sys
 from pathlib import Path
-from typing import Dict, List, TextIO, Tuple
+from typing import Dict, List, Tuple
 
-
-def open_maybe_gzip(path: Path, mode: str) -> TextIO:
-    # Normalize IO for optional gzipped inputs.
-    if str(path).endswith(".gz"):
-        return gzip.open(path, mode)  # type: ignore
-    return path.open(mode, encoding="utf-8")
-
-
-def extract_end(info: str) -> int | None:
-    # Parse END= from INFO, if present.
-    if info == ".":
-        return None
-    for field in info.split(";"):
-        if field.startswith("END="):
-            try:
-                return int(field.split("=", 1)[1])
-            except ValueError:
-                return None
-    return None
+try:
+    from scripts.common import merge_intervals, open_text
+except ModuleNotFoundError:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from scripts.common import merge_intervals, open_text
 
 
 def load_fai_length(path: Path, chrom: str) -> int:
@@ -57,7 +42,7 @@ def read_clean_inv_intervals(path: Path) -> tuple[str | None, List[Tuple[int, in
     # Convert 1-based VCF positions to 0-based half-open intervals.
     chrom = None
     intervals: List[Tuple[int, int]] = []
-    with open_maybe_gzip(path, "rt") as fin:
+    with open_text(path, "rt") as fin:
         for raw in fin:
             if raw.startswith("#") or not raw.strip():
                 continue
@@ -95,23 +80,6 @@ def read_bed_intervals(path: Path) -> tuple[str | None, List[Tuple[int, int]]]:
             if end > start:
                 intervals.append((start, end))
     return chrom, intervals
-
-
-def merge_intervals(intervals: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
-    # Coalesce overlapping/adjacent intervals to simplify coverage math.
-    if not intervals:
-        return []
-    intervals.sort(key=lambda x: (x[0], x[1]))
-    merged: List[Tuple[int, int]] = []
-    cur_s, cur_e = intervals[0]
-    for s, e in intervals[1:]:
-        if s <= cur_e:
-            cur_e = max(cur_e, e)
-        else:
-            merged.append((cur_s, cur_e))
-            cur_s, cur_e = s, e
-    merged.append((cur_s, cur_e))
-    return merged
 
 
 def overlap_bp(a: List[Tuple[int, int]], b: List[Tuple[int, int]]) -> int:

@@ -1,10 +1,10 @@
 import os
 import re
-import gzip
 import sys
 from pathlib import Path
 
 from snakemake.io import glob_wildcards
+from scripts.common import open_fasta, read_fasta_contigs, read_maf_contigs
 
 configfile: "config.yaml"
 
@@ -98,60 +98,6 @@ def _maf_path_for_sample(sample: str) -> Path:
     return maf
 
 
-def _read_maf_contigs(maf_path: Path) -> set[str]:
-    contigs = set()
-    try:
-        if maf_path.name.endswith(".gz"):
-            handle = gzip.open(maf_path, "rt", encoding="utf-8")
-        else:
-            handle = maf_path.open("r", encoding="utf-8")
-        with handle:
-            first_src = None
-            for line in handle:
-                if not line or line.startswith("#"):
-                    continue
-                stripped = line.strip()
-                if not stripped:
-                    if first_src is not None:
-                        contigs.add(first_src)
-                        first_src = None
-                    continue
-                parts = stripped.split()
-                if not parts:
-                    continue
-                if parts[0] == "a":
-                    if first_src is not None:
-                        contigs.add(first_src)
-                    first_src = None
-                    continue
-                if parts[0] == "s" and len(parts) >= 2 and first_src is None:
-                    # Use first sequence src in each block as the reference-side contig.
-                    first_src = parts[1]
-            if first_src is not None:
-                contigs.add(first_src)
-    except OSError:
-        return set()
-    return contigs
-
-
-def _open_fasta(path: Path):
-    if path.suffix == ".gz":
-        return gzip.open(path, "rt", encoding="utf-8")
-    return path.open("r", encoding="utf-8")
-
-
-def _read_fasta_contigs(path: Path) -> list[str]:
-    contigs = []
-    try:
-        with _open_fasta(path) as handle:
-            for line in handle:
-                if line.startswith(">"):
-                    contigs.append(line[1:].strip().split()[0])
-    except OSError:
-        pass
-    return contigs
-
-
 def _read_gvcf_contigs(path: Path) -> list[str]:
     contigs = []
     opener = gzip.open if path.suffix == ".gz" else open
@@ -171,7 +117,7 @@ def _read_gvcf_contigs(path: Path) -> list[str]:
 
 def _contig_map_from_gvcf(gvcf_path: Path):
     gvcf_contigs = _read_gvcf_contigs(gvcf_path)
-    fasta_contigs = _read_fasta_contigs(ORIG_REF_FASTA)
+    fasta_contigs = read_fasta_contigs(ORIG_REF_FASTA)
     if not gvcf_contigs or not fasta_contigs:
         raise ValueError(
             "Unable to read contigs from gVCF or reference; cannot rename reference."
@@ -221,7 +167,7 @@ def _read_maf_contig_sets(samples: list[str]) -> dict[str, set[str]]:
     contigs_by_sample: dict[str, set[str]] = {}
     for sample in samples:
         maf_path = _maf_path_for_sample(sample)
-        contigs_by_sample[sample] = _read_maf_contigs(maf_path)
+        contigs_by_sample[sample] = read_maf_contigs(maf_path)
     return contigs_by_sample
 
 
@@ -463,7 +409,7 @@ rule rename_reference:
         out_path = Path(output.ref)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         mapping = _contig_map_from_gvcf(Path(input.gvcf))
-        with _open_fasta(Path(input.ref)) as fin, open(
+        with open_fasta(Path(input.ref)) as fin, open(
             output.ref, "w", encoding="utf-8"
         ) as fout:
             for line in fin:
