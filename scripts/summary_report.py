@@ -490,7 +490,7 @@ with report_path.open("w", encoding="utf-8") as handle:
 
     for path in snakemake.input.invs:
         try:
-            with _open_text(str(path)) as f_in:
+            with open_text(str(path), "rt", errors="ignore") as f_in:
                 for line in f_in:
                     if not line or line.startswith("#"):
                         continue
@@ -515,7 +515,7 @@ with report_path.open("w", encoding="utf-8") as handle:
 
     for clean_path in snakemake.input.cleans:
         try:
-            with _open_text(str(clean_path)) as f_in:
+            with open_text(str(clean_path), "rt", errors="ignore") as f_in:
                 for line in f_in:
                     if not line or line.startswith("#"):
                         continue
