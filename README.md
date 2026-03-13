@@ -139,6 +139,44 @@ For a quick SLURM-profile syntax/config sanity check without submitting jobs, us
 snakemake --profile profiles/slurm -n
 ```
 
+## Simulation Helper
+
+The repository includes [scripts/simulate_msprime_indels.py](/Users/jeffreyross-ibarra/src/argprep/scripts/simulate_msprime_indels.py) for generating small haploid test datasets with msprime SNP variation plus branch-based indels on the tree sequence.
+
+Example:
+
+```bash
+python scripts/simulate_msprime_indels.py \
+  --sequence-length 10000 \
+  --num-samples 8 \
+  --theta 0.01 \
+  --rho 0.01 \
+  --indel-rate 0.001 \
+  --indel-lambda 0.5 \
+  --seed 7 \
+  --out-prefix /tmp/sim/example
+```
+
+Outputs:
+
+- `<prefix>.reference.fa` : simulated reference sequence
+- `<prefix>.samples.fa` : simulated sample sequences after SNPs and shared/private indels
+- `<prefix>.indels.tsv` : per-sample indel event table with `shared_event_id` linking the same branch event across descendant samples
+- `<prefix>.summary.tsv` : summary counts for ancestral bp affected by deletions in at least one sample and SNPs that do not overlap any deleted ancestral bp
+- `<prefix>.maf/` : one pairwise MAF per sample against the ancestral sequence
+
+Parameters:
+
+- `--sequence-length` : reference length to simulate
+- `--num-samples` : number of haploid samples
+- `--theta` : scaled mutation parameter; the script uses `theta / 4` as the per-site mutation rate with `population_size=1`
+- `--rho` : scaled recombination parameter; the script uses `rho / 4` as the per-site recombination rate with `population_size=1`
+- `--indel-rate` : indel events per base per generation on tree-sequence branches; descendant samples inherit branch events according to the local genealogy
+- `--indel-lambda` : rate parameter for the exponential indel size distribution; mean indel size is `1 / lambda`
+- `--seed` : RNG seed for reproducibility
+
+The simulator includes both insertions and deletions. Insertions appear in the sample FASTA/MAF outputs, while the ancestral-bp summary counts only deletion-overlapped ancestral positions because insertions do not consume reference bases.
+
 ## Notes
 
 - You will need to change the SLURM account and partition in `config.yaml`.

@@ -12,6 +12,7 @@ dependencies:
   - picard
   - python=3.11
   - numpy
+  - msprime
   - snakemake>=8.0.0
   - snakemake-executor-plugin-cluster-generic
   - pytest

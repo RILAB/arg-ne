@@ -6,6 +6,10 @@ reference_fasta: example_data/ref.fa
 gvcf_dir: example_gvcf
 results_dir: example_results
 
+# Pipeline mode
+# When true, bypass the gVCF/TASSEL path and build all-sites/variants/mask outputs directly from MAFs.
+direct_maf_pipeline: true
+
 # Tools
 # tassel_dir defaults to "tassel-5-standalone" if omitted
 # tassel_dir: /path/to/tassel-5-standalone
@@ -28,6 +32,16 @@ outputJustGT: true
 # samples:
 #   - sampleA
 #   - sampleB
+
+# Direct MAF pipeline options
+# direct_max_missing_count: 0
+# direct_max_missing_fraction: 0.0
+# direct_mask_indels: true
+# direct_treat_n_as_missing: true
+# direct_allow_multiallelic_snps: false
+# direct_maf_threads: 2
+# direct_maf_mem_mb: 48000
+# direct_maf_time: "24:00:00"
 
 # Optional: dropSV.py cutoff for large indels. 
 # Recommended to set higher (e.g. 10000000) for complex genomes. This requires more memory.

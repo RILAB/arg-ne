@@ -166,11 +166,87 @@ def _chrom_from_prefix(prefix: Path) -> str | None:
     return name.split(marker, 1)[1] or None
 
 
+def summarize_site_and_mask_coverage(
+    site_vcf: Path,
+    mask_bed: Path,
+    fai: Path,
+    *,
+    chrom_hint: str | None = None,
+) -> Dict[str, int | str]:
+    """
+    Validate that site VCF records and mask BED intervals are disjoint and
+    together span the full reference contig.
+    """
+    site_chrom, site_intervals = read_clean_inv_intervals(site_vcf)
+    bed_chrom, bed_intervals = read_bed_intervals(mask_bed)
+
+    chrom = site_chrom or bed_chrom or chrom_hint
+    if chrom is None:
+        raise ValueError("unable to determine chromosome from site VCF or mask BED")
+    if site_chrom is not None and site_chrom != chrom:
+        raise ValueError(f"mismatched chromosome in site VCF: {site_chrom} != {chrom}")
+    if bed_chrom is not None and bed_chrom != chrom:
+        raise ValueError(f"mismatched chromosome in mask BED: {bed_chrom} != {chrom}")
+
+    chrom_len = load_fai_length(fai, chrom)
+    overlap = overlap_bp(site_intervals, bed_intervals)
+    if overlap:
+        raise ValueError(
+            f"overlap detected for {chrom}: site_vcf vs mask_bed={overlap}"
+        )
+
+    merged = merge_intervals(site_intervals + bed_intervals)
+    total = sum(e - s for s, e in merged)
+    if total != chrom_len:
+        raise ValueError(
+            f"coverage mismatch for {chrom}: union={total}, chrom_len={chrom_len}"
+        )
+
+    return {
+        "chrom": chrom,
+        "site_bp": sum(e - s for s, e in merge_intervals(site_intervals)),
+        "mask_bed_bp": sum(e - s for s, e in merge_intervals(bed_intervals)),
+        "total_bp": total,
+        "chrom_len": chrom_len,
+    }
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Check split coverage against reference length.")
-    ap.add_argument("prefix", help="Prefix for split outputs (e.g., results/split/combined.1)")
+    ap.add_argument("prefix", nargs="?", help="Prefix for split outputs (e.g., results/split/combined.1)")
     ap.add_argument("--fai", required=True, help="Reference .fai path for contig lengths")
+    ap.add_argument("--site-vcf", help="Direct all-sites VCF path")
+    ap.add_argument("--mask-bed", help="Direct mask BED path")
+    ap.add_argument("--chrom", help="Explicit chromosome/contig name for direct mode")
+    ap.add_argument("--report-out", help="Optional report output path")
     args = ap.parse_args()
+
+    if args.site_vcf or args.mask_bed:
+        if not args.site_vcf or not args.mask_bed:
+            sys.exit("ERROR: --site-vcf and --mask-bed must be provided together.")
+        try:
+            summary = summarize_site_and_mask_coverage(
+                Path(args.site_vcf),
+                Path(args.mask_bed),
+                Path(args.fai),
+                chrom_hint=args.chrom,
+            )
+        except ValueError as exc:
+            sys.exit(f"ERROR: {exc}")
+
+        report = Path(args.report_out) if args.report_out else Path(args.site_vcf).with_suffix(".coverage.txt")
+        report.write_text(
+            f"chrom={summary['chrom']}\n"
+            f"site_bp={summary['site_bp']}\n"
+            f"mask_bed_bp={summary['mask_bed_bp']}\n"
+            f"total_bp={summary['total_bp']}\n"
+            f"chrom_len={summary['chrom_len']}\n",
+            encoding="utf-8",
+        )
+        return
+
+    if not args.prefix:
+        sys.exit("ERROR: prefix is required unless --site-vcf/--mask-bed are used.")
 
     prefix = Path(args.prefix)
     clean = prefix.with_suffix(prefix.suffix + ".clean.vcf")

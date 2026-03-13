@@ -45,6 +45,12 @@ DROP_CUTOFF = config.get("drop_cutoff", "")
 FILTER_MULTIALLELIC = _config_bool(config.get("filter_multiallelic", False))
 BGZIP_OUTPUT = _config_bool(config.get("bgzip_output", True))
 ADD_REFERENCE = _config_bool(config.get("add_reference", False))
+DIRECT_MAF_PIPELINE = _config_bool(config.get("direct_maf_pipeline", False))
+DIRECT_ALLOW_MULTIALLELIC = _config_bool(config.get("direct_allow_multiallelic_snps", False))
+DIRECT_MASK_INDELS = _config_bool(config.get("direct_mask_indels", True))
+DIRECT_TREAT_N_AS_MISSING = _config_bool(config.get("direct_treat_n_as_missing", True))
+DIRECT_MAX_MISSING_COUNT = config.get("direct_max_missing_count")
+DIRECT_MAX_MISSING_FRACTION = config.get("direct_max_missing_fraction")
 GENOMICSDB_VCF_BUFFER_SIZE = int(config.get("genomicsdb_vcf_buffer_size", 1048576))
 GENOMICSDB_SEGMENT_SIZE = int(config.get("genomicsdb_segment_size", 1048576))
 MAF_TO_GVCF_THREADS = int(config.get("maf_to_gvcf_threads", config.get("default_threads", 2)))
@@ -71,6 +77,7 @@ for ext in (".fa", ".fasta"):
         REF_BASE = REF_BASE[: -len(ext)]
 
 RENAMED_REF_FASTA = RESULTS_DIR / "refs" / "reference_gvcf.fa"
+DIRECT_REF_FASTA = RESULTS_DIR / "refs" / "reference_sites.fa"
 COMBINED_DIR = RESULTS_DIR / "combined"
 COMBINED_RAW_DIR = RESULTS_DIR / "combined_raw"
 
@@ -148,7 +155,7 @@ def _contig_map_from_gvcf(gvcf_path: Path):
 
 
 REF_FASTA = ORIG_REF_FASTA
-REF_FASTA_GATK = RENAMED_REF_FASTA
+REF_FASTA_GATK = DIRECT_REF_FASTA if DIRECT_MAF_PIPELINE else RENAMED_REF_FASTA
 REF_FAI = str(REF_FASTA_GATK) + ".fai"
 REF_DICT = str(REF_FASTA_GATK.with_suffix(".dict"))
 
@@ -338,6 +345,13 @@ def _active_contigs() -> list[str]:
 
 def _all_targets(_wc):
     contigs = _active_contigs()
+    if DIRECT_MAF_PIPELINE:
+        return (
+            [str(_direct_all_sites_out(c)) for c in contigs]
+            + [str(_direct_variants_out(c)) for c in contigs]
+            + [str(_direct_mask_out(c)) for c in contigs]
+            + [str(_direct_prefix(c)) + ".coverage.txt" for c in contigs]
+        )
     return (
         [str(_combined_out(c)) for c in contigs]
         + [str(_split_prefix(c)) + MASK_BED_SUFFIX for c in contigs]
@@ -386,6 +400,26 @@ def _accessibility_out(contig):
     return RESULTS_DIR / "split" / f"combined.{contig}.accessible.npz"
 
 
+def _direct_prefix(contig):
+    return RESULTS_DIR / "sites" / f"combined.{contig}"
+
+
+def _direct_all_sites_out(contig):
+    return Path(str(_direct_prefix(contig)) + ".all_sites.vcf")
+
+
+def _direct_variants_out(contig):
+    return Path(str(_direct_prefix(contig)) + ".variants.vcf")
+
+
+def _direct_mask_out(contig):
+    return Path(str(_direct_prefix(contig)) + ".masked.bed")
+
+
+def _direct_summary_out(contig):
+    return Path(str(_direct_prefix(contig)) + ".site_summary.tsv")
+
+
 SPLIT_SUFFIX = ".gz" if BGZIP_OUTPUT else ""
 CLEAN_VCF_SUFFIX = ".clean.vcf" + SPLIT_SUFFIX
 MASK_BED_SUFFIX = ".clean.mask.bed"
@@ -393,6 +427,93 @@ MASK_BED_SUFFIX = ".clean.mask.bed"
 rule all:
     # Final targets: merged gVCFs plus filtered bed masks per contig.
     input: _all_targets
+
+rule direct_maf_sites:
+    threads: int(config.get("direct_maf_threads", config.get("default_threads", 2)))
+    resources:
+        mem_mb=int(config.get("direct_maf_mem_mb", DEFAULT_MEM_MB)),
+        time=str(config.get("direct_maf_time", config.get("default_time", "24:00:00")))
+    input:
+        mafs=lambda wc: [_maf_input(sample) for sample in SAMPLES],
+        ref=str(REF_FASTA),
+        fai=REF_FAI,
+    output:
+        all_sites=str(RESULTS_DIR / "sites" / "combined.{contig}.all_sites.vcf"),
+        variants=str(RESULTS_DIR / "sites" / "combined.{contig}.variants.vcf"),
+        mask=str(RESULTS_DIR / "sites" / "combined.{contig}.masked.bed"),
+        summary=str(RESULTS_DIR / "sites" / "combined.{contig}.site_summary.tsv"),
+    params:
+        maf_dir=str(MAF_DIR),
+        samples=" ".join(SAMPLES),
+        max_missing_count=(
+            None if DIRECT_MAX_MISSING_COUNT in (None, "") else int(DIRECT_MAX_MISSING_COUNT)
+        ),
+        max_missing_fraction=(
+            None
+            if DIRECT_MAX_MISSING_FRACTION in (None, "")
+            else float(DIRECT_MAX_MISSING_FRACTION)
+        ),
+        allow_multiallelic=DIRECT_ALLOW_MULTIALLELIC,
+        mask_indels=DIRECT_MASK_INDELS,
+        treat_n_as_missing=DIRECT_TREAT_N_AS_MISSING,
+        out_prefix=lambda wc: str(_direct_prefix(wc.contig)),
+    shell:
+        """
+        set -euo pipefail
+        mkdir -p "{RESULTS_DIR}/sites"
+        cmd=(python "{workflow.basedir}/scripts/maf_to_sites.py"
+          --maf-dir "{params.maf_dir}"
+          --reference-fasta "{input.ref}"
+          --contig "{wildcards.contig}"
+          --out-prefix "{params.out_prefix}"
+          --samples {params.samples})
+        if [ "{params.max_missing_count}" != "None" ]; then
+          cmd+=(--max-missing-count "{params.max_missing_count}")
+        fi
+        if [ "{params.max_missing_fraction}" != "None" ]; then
+          cmd+=(--max-missing-fraction "{params.max_missing_fraction}")
+        fi
+        if [ "{params.allow_multiallelic}" = "True" ]; then
+          cmd+=(--allow-multiallelic-snps)
+        fi
+        if [ "{params.mask_indels}" = "True" ]; then
+          cmd+=(--mask-indels)
+        fi
+        if [ "{params.treat_n_as_missing}" = "True" ]; then
+          cmd+=(--treat-n-as-missing)
+        fi
+        "${{cmd[@]}}"
+        """
+
+rule direct_check_coverage:
+    input:
+        all_sites=lambda wc: str(_direct_all_sites_out(wc.contig)),
+        mask=lambda wc: str(_direct_mask_out(wc.contig)),
+        fai=REF_FAI,
+    output:
+        report=str(RESULTS_DIR / "sites" / "combined.{contig}.coverage.txt"),
+    shell:
+        """
+        set -euo pipefail
+        python "{workflow.basedir}/scripts/check_split_coverage.py" \
+          --site-vcf "{input.all_sites}" \
+          --mask-bed "{input.mask}" \
+          --fai "{input.fai}" \
+          --chrom "{wildcards.contig}" \
+          --report-out "{output.report}"
+        """
+
+rule prepare_direct_reference:
+    input:
+        ref=str(ORIG_REF_FASTA),
+    output:
+        ref=str(DIRECT_REF_FASTA),
+    shell:
+        """
+        set -euo pipefail
+        mkdir -p "$(dirname "{output.ref}")"
+        cp "{input.ref}" "{output.ref}"
+        """
 
 rule rename_reference:
     # Create a renamed reference FASTA to match gVCF contig names.
