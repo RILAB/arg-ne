@@ -9,10 +9,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.simulate_msprime_indels import (
     IndelEvent,
+    MafBlock,
     apply_indel_events,
     align_sample_to_reference,
+    canonicalize_sample_events,
     sample_indel_events_on_ts,
     sample_lineage_event,
+    scaled_rate,
     summarize_reference_overlaps,
 )
 
@@ -73,32 +76,108 @@ def test_sample_indel_events_on_ts_shares_events_across_descendants():
 
 
 def test_align_sample_to_reference_emits_expected_gaps():
-    blocks = align_sample_to_reference(
+    sample_sequence, blocks = align_sample_to_reference(
         reference="ACGT",
         sample_name="sample1",
-        sample_sequence="ATTTT",
+        haplotype="ATGT",
         events=[
             IndelEvent(sample="sample1", shared_event_id=1, event_index=1, event_type="del", position_1based=2, size=1, sequence="C"),
             IndelEvent(sample="sample1", shared_event_id=2, event_index=1, event_type="ins", position_1based=3, size=2, sequence="TT"),
         ],
     )
 
+    assert sample_sequence == "ATTGT"
     assert len(blocks) == 1
     assert blocks[0].ancestral_seq == "AC--GT"
-    assert blocks[0].sample_seq == "A-TTTT"
+    assert blocks[0].sample_seq == "A-TTGT"
+
+
+def test_align_sample_to_reference_preserves_downstream_snp_coordinates():
+    sample_sequence, blocks = align_sample_to_reference(
+        reference="ACGTACGT",
+        sample_name="sample1",
+        haplotype="ACGTTCGT",
+        events=[
+            IndelEvent(sample="sample1", shared_event_id=1, event_index=1, event_type="ins", position_1based=3, size=2, sequence="GG")
+        ],
+    )
+
+    assert sample_sequence == "ACGGGTTCGT"
+    assert blocks[0].ancestral_seq == "AC--GTACGT"
+    assert blocks[0].sample_seq == "ACGGGTTCGT"
+    assert summarize_reference_overlaps(blocks) == (0, 1, 1)
+
+
+def test_canonicalize_sample_events_merges_overlapping_deletions():
+    events = canonicalize_sample_events(
+        "ACGT",
+        [
+            IndelEvent(sample="s1", shared_event_id=1, event_index=1, event_type="del", position_1based=2, size=2, sequence=""),
+            IndelEvent(sample="s1", shared_event_id=2, event_index=1, event_type="del", position_1based=3, size=3, sequence=""),
+        ],
+    )
+
+    assert len(events) == 1
+    assert events[0].position_1based == 2
+    assert events[0].size == 3
+    assert events[0].sequence == "CGT"
+
+
+def test_canonicalize_sample_events_merges_same_anchor_insertions():
+    events = canonicalize_sample_events(
+        "ACGT",
+        [
+            IndelEvent(sample="s1", shared_event_id=1, event_index=1, event_type="ins", position_1based=3, size=2, sequence="TT"),
+            IndelEvent(sample="s1", shared_event_id=2, event_index=1, event_type="ins", position_1based=3, size=1, sequence="A"),
+        ],
+    )
+
+    assert len(events) == 1
+    assert events[0].position_1based == 3
+    assert events[0].size == 3
+    assert events[0].sequence == "TTA"
 
 
 def test_summarize_reference_overlaps_counts_deleted_bp_and_clean_snps():
-    indel_bp, snps = summarize_reference_overlaps(
-        reference="ACGT",
-        haplotypes=["ACGT", "ATGT"],
-        all_events=[
-            IndelEvent(sample="sample1", shared_event_id=1, event_index=1, event_type="del", position_1based=1, size=1, sequence="A")
+    indel_bp, total_snps, snps = summarize_reference_overlaps(
+        maf_blocks=[
+            MafBlock(
+                contig="ancestral",
+                start0=0,
+                ancestral_size=4,
+                ancestral_seq="ACGT",
+                sample_name="sample1",
+                sample_size=4,
+                sample_seq="ACGT",
+            ),
+            MafBlock(
+                contig="ancestral",
+                start0=0,
+                ancestral_size=4,
+                ancestral_seq="ACGT",
+                sample_name="sample2",
+                sample_size=3,
+                sample_seq="-CGT",
+            ),
+            MafBlock(
+                contig="ancestral",
+                start0=0,
+                ancestral_size=4,
+                ancestral_seq="ACGT",
+                sample_name="sample3",
+                sample_size=4,
+                sample_seq="TCGT",
+            ),
         ],
     )
 
     assert indel_bp == 1
-    assert snps == 1
+    assert total_snps == 1
+    assert snps == 0
+
+
+def test_scaled_rate_uses_explicit_ne():
+    assert scaled_rate(0.01, 10_000, "theta") == 0.01 / 40_000
 
 
 def test_simulate_msprime_indels_cli_smoke(tmp_path: Path):
@@ -115,6 +194,8 @@ def test_simulate_msprime_indels_cli_smoke(tmp_path: Path):
             "0.01",
             "--rho",
             "0.01",
+            "--ne",
+            "10000",
             "--indel-rate",
             "0.05",
             "--indel-lambda",
@@ -148,3 +229,5 @@ def test_simulate_msprime_indels_cli_smoke(tmp_path: Path):
     assert lines[0] == "sample\tshared_event_id\tevent_index\ttype\tposition_1based\tsize\tsequence"
     summary_lines = summary_tsv.read_text(encoding="utf-8").splitlines()
     assert summary_lines[0] == "metric\tvalue"
+    assert "seed\t7" in summary_lines
+    assert any(line.startswith("total_snps\t") for line in summary_lines)

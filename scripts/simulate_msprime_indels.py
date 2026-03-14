@@ -10,9 +10,9 @@ Outputs:
   - <prefix>.maf/         : pairwise MAFs for each sample vs ancestral sequence
 
 Notes:
-  - `theta` and `rho` are interpreted as scaled values with `4Ne=4`,
-    i.e. per-site mutation/recombination rates are `theta/4` and `rho/4`
-    with `population_size=1`.
+  - `theta` and `rho` use the usual population-scaled convention
+    `theta = 4Ne*mu` and `rho = 4Ne*r`. The simulator converts those to
+    per-site per-generation rates using the explicit `--ne` argument.
   - Indels are simulated on tree-sequence branch segments with rate
     `indel_rate * branch_length * genomic_span`, then projected to all
     descendant samples. This means descendant samples share indels according
@@ -57,8 +57,9 @@ def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--sequence-length", type=int, required=True)
     ap.add_argument("--num-samples", type=int, required=True)
-    ap.add_argument("--theta", type=float, required=True, help="Scaled mutation parameter; uses theta/4 as the per-site rate")
-    ap.add_argument("--rho", type=float, required=True, help="Scaled recombination parameter; uses rho/4 as the per-site rate")
+    ap.add_argument("--theta", type=float, required=True, help="Scaled mutation parameter, interpreted as 4Ne*mu")
+    ap.add_argument("--rho", type=float, required=True, help="Scaled recombination parameter, interpreted as 4Ne*r")
+    ap.add_argument("--ne", type=float, required=True, help="Effective population size used to convert theta and rho")
     ap.add_argument(
         "--indel-rate",
         type=float,
@@ -103,16 +104,28 @@ def write_indel_table(path: Path, events: list[IndelEvent]) -> None:
 def write_summary(
     path: Path,
     *,
+    seed: int,
     sequence_length: int,
     indel_affected_bp: int,
+    total_snps: int,
     snps_without_indels: int,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
         handle.write("metric\tvalue\n")
+        handle.write(f"seed\t{seed}\n")
         handle.write(f"sequence_length\t{sequence_length}\n")
         handle.write(f"ancestral_bp_with_indel_in_ge1_sample\t{indel_affected_bp}\n")
+        handle.write(f"total_snps\t{total_snps}\n")
         handle.write(f"snps_without_overlapping_indel\t{snps_without_indels}\n")
+
+
+def scaled_rate(parameter: float, ne: float, label: str) -> float:
+    if parameter < 0:
+        raise ValueError(f"--{label} must be non-negative")
+    if ne <= 0:
+        raise ValueError("--ne must be positive")
+    return parameter / (4.0 * ne)
 
 
 def write_maf(path: Path, blocks: list[MafBlock]) -> None:
@@ -135,6 +148,7 @@ def simulate_snp_haplotypes(
     num_samples: int,
     theta: float,
     rho: float,
+    ne: float,
     seed: int,
 ) -> tuple[str, list[str], object]:
     import msprime
@@ -143,24 +157,24 @@ def simulate_snp_haplotypes(
         raise ValueError("--sequence-length must be positive")
     if num_samples <= 0:
         raise ValueError("--num-samples must be positive")
-    if theta < 0 or rho < 0:
-        raise ValueError("--theta and --rho must be non-negative")
 
     rng = np.random.default_rng(seed)
     reference = list(random_dna(sequence_length, rng))
+    recombination_rate = scaled_rate(rho, ne, "rho")
+    mutation_rate = scaled_rate(theta, ne, "theta")
 
     ts = msprime.sim_ancestry(
         samples=num_samples,
         ploidy=1,
         sequence_length=sequence_length,
-        recombination_rate=rho / 4.0,
-        population_size=1.0,
+        recombination_rate=recombination_rate,
+        population_size=ne,
         discrete_genome=True,
         random_seed=seed,
     )
     mts = msprime.sim_mutations(
         ts,
-        rate=theta / 4.0,
+        rate=mutation_rate,
         model=msprime.JC69(),
         random_seed=seed + 1,
     )
@@ -301,24 +315,96 @@ def apply_indel_events(sequence: str, events: list[IndelEvent]) -> tuple[str, li
     return "".join(seq), applied
 
 
+def canonicalize_sample_events(haplotype: str, events: list[IndelEvent]) -> list[IndelEvent]:
+    insertions_by_anchor: dict[int, list[IndelEvent]] = defaultdict(list)
+    deletion_intervals: list[tuple[int, int]] = []
+    sample = events[0].sample if events else ""
+
+    for event in sorted(events, key=lambda e: (e.position_1based, e.event_type, e.shared_event_id, e.event_index)):
+        start0 = max(0, min(event.position_1based - 1, len(haplotype)))
+        if event.event_type == "ins":
+            insertions_by_anchor[start0].append(event)
+            continue
+
+        end0 = min(start0 + event.size, len(haplotype))
+        if end0 > start0:
+            deletion_intervals.append((start0, end0))
+
+    canonical: list[IndelEvent] = []
+    next_event_id = 1
+    for start0 in sorted(insertions_by_anchor):
+        sequence = "".join(event.sequence for event in insertions_by_anchor[start0])
+        if not sequence:
+            continue
+        canonical.append(
+            IndelEvent(
+                sample=sample,
+                shared_event_id=next_event_id,
+                event_index=1,
+                event_type="ins",
+                position_1based=start0 + 1,
+                size=len(sequence),
+                sequence=sequence,
+            )
+        )
+        next_event_id += 1
+
+    if deletion_intervals:
+        deletion_intervals.sort()
+        merged_start, merged_end = deletion_intervals[0]
+        for start0, end0 in deletion_intervals[1:]:
+            if start0 <= merged_end:
+                merged_end = max(merged_end, end0)
+                continue
+            deleted = haplotype[merged_start:merged_end]
+            canonical.append(
+                IndelEvent(
+                    sample=sample,
+                    shared_event_id=next_event_id,
+                    event_index=1,
+                    event_type="del",
+                    position_1based=merged_start + 1,
+                    size=len(deleted),
+                    sequence=deleted,
+                )
+            )
+            next_event_id += 1
+            merged_start, merged_end = start0, end0
+        deleted = haplotype[merged_start:merged_end]
+        canonical.append(
+            IndelEvent(
+                sample=sample,
+                shared_event_id=next_event_id,
+                event_index=1,
+                event_type="del",
+                position_1based=merged_start + 1,
+                size=len(deleted),
+                sequence=deleted,
+            )
+        )
+
+    return sorted(canonical, key=lambda e: (e.position_1based, e.event_type))
+
+
 def align_sample_to_reference(
     reference: str,
     sample_name: str,
-    sample_sequence: str,
+    haplotype: str,
     events: list[IndelEvent],
-) -> list[MafBlock]:
+) -> tuple[str, list[MafBlock]]:
     insertions_by_anchor: dict[int, list[str]] = defaultdict(list)
-    deletions_by_start: dict[int, int] = {}
+    deleted_positions: set[int] = set()
     for event in events:
         pos0 = event.position_1based - 1
         if event.event_type == "ins":
             insertions_by_anchor[pos0].append(event.sequence)
         else:
-            deletions_by_start[pos0] = max(deletions_by_start.get(pos0, 0), event.size)
+            for del_pos0 in range(pos0, min(pos0 + event.size, len(reference))):
+                deleted_positions.add(del_pos0)
 
     ref_aligned: list[str] = []
     sample_aligned: list[str] = []
-    sample_idx = 0
+    sample_sequence: list[str] = []
     ref_idx = 0
 
     while ref_idx < len(reference):
@@ -326,64 +412,58 @@ def align_sample_to_reference(
         for ins_seq in insertions_by_anchor.get(ref_idx, []):
             ref_aligned.extend("-" * len(ins_seq))
             sample_aligned.extend(ins_seq)
-            sample_idx += len(ins_seq)
+            sample_sequence.extend(ins_seq)
 
-        del_size = deletions_by_start.get(ref_idx, 0)
-        if del_size > 0:
-            for del_ref_idx in range(ref_idx, min(ref_idx + del_size, len(reference))):
-                ref_aligned.append(reference[del_ref_idx])
-                sample_aligned.append("-")
-            ref_idx += del_size
+        if ref_idx in deleted_positions:
+            ref_aligned.append(ref_base)
+            sample_aligned.append("-")
+            ref_idx += 1
             continue
 
         ref_aligned.append(ref_base)
-        if sample_idx >= len(sample_sequence):
-            sample_aligned.append("-")
-        else:
-            sample_aligned.append(sample_sequence[sample_idx])
-            sample_idx += 1
+        sample_base = haplotype[ref_idx]
+        sample_aligned.append(sample_base)
+        sample_sequence.append(sample_base)
         ref_idx += 1
 
     for ins_seq in insertions_by_anchor.get(len(reference), []):
         ref_aligned.extend("-" * len(ins_seq))
         sample_aligned.extend(ins_seq)
+        sample_sequence.extend(ins_seq)
 
     aligned_ref = "".join(ref_aligned)
     aligned_sample = "".join(sample_aligned)
-    return [
+    realized_sequence = "".join(sample_sequence)
+    return realized_sequence, [
         MafBlock(
             contig="ancestral",
             start0=0,
             ancestral_size=len(reference),
             ancestral_seq=aligned_ref,
             sample_name=sample_name,
-            sample_size=len(sample_sequence),
+            sample_size=len(realized_sequence),
             sample_seq=aligned_sample,
         )
     ]
 
 
-def summarize_reference_overlaps(
-    reference: str,
-    haplotypes: list[str],
-    all_events: list[IndelEvent],
-) -> tuple[int, int]:
+def summarize_reference_overlaps(maf_blocks: list[MafBlock]) -> tuple[int, int, int]:
     indel_positions: set[int] = set()
-    for event in all_events:
-        if event.event_type != "del":
-            continue
-        start0 = event.position_1based - 1
-        for pos0 in range(start0, min(start0 + event.size, len(reference))):
-            indel_positions.add(pos0)
+    all_snp_positions: set[int] = set()
+    for block in maf_blocks:
+        ref_pos0 = block.start0
+        for ref_base, sample_base in zip(block.ancestral_seq, block.sample_seq, strict=True):
+            if ref_base == "-":
+                continue
+            if sample_base == "-":
+                indel_positions.add(ref_pos0)
+            elif sample_base in {"A", "C", "G", "T"} and sample_base != ref_base:
+                all_snp_positions.add(ref_pos0)
+            ref_pos0 += 1
 
-    snp_positions: set[int] = set()
-    for pos0, ref_base in enumerate(reference):
-        if pos0 in indel_positions:
-            continue
-        if any(sample[pos0] != ref_base for sample in haplotypes):
-            snp_positions.add(pos0)
+    non_indel_snp_positions = all_snp_positions - indel_positions
 
-    return len(indel_positions), len(snp_positions)
+    return len(indel_positions), len(all_snp_positions), len(non_indel_snp_positions)
 
 
 def main() -> None:
@@ -400,6 +480,7 @@ def main() -> None:
         num_samples=args.num_samples,
         theta=args.theta,
         rho=args.rho,
+        ne=args.ne,
         seed=args.seed,
     )
 
@@ -415,36 +496,38 @@ def main() -> None:
     sample_records: list[tuple[str, str]] = []
     all_events: list[IndelEvent] = []
     per_sample_events: dict[str, list[IndelEvent]] = defaultdict(list)
-    pre_indel_haplotypes = list(haplotypes)
+    maf_blocks: list[MafBlock] = []
     for sample_name, haplotype in zip(sample_names, haplotypes, strict=True):
         sample_events = [event for event in proposed_events if event.sample == sample_name]
-        sequence_with_indels, applied_events = apply_indel_events(haplotype, sample_events)
+        applied_events = canonicalize_sample_events(haplotype, sample_events)
+        sequence_with_indels, sample_maf_blocks = align_sample_to_reference(
+            reference=reference,
+            sample_name=sample_name,
+            haplotype=haplotype,
+            events=applied_events,
+        )
         sample_records.append((sample_name, sequence_with_indels))
         all_events.extend(applied_events)
         per_sample_events[sample_name].extend(applied_events)
+        maf_blocks.extend(sample_maf_blocks)
 
     write_fasta(ref_out, [("reference", reference)])
     write_fasta(samples_out, sample_records)
     write_indel_table(indels_out, all_events)
-    indel_bp, snps_without_indels = summarize_reference_overlaps(
-        reference=reference,
-        haplotypes=pre_indel_haplotypes,
-        all_events=all_events,
+    indel_bp, total_snps, snps_without_indels = summarize_reference_overlaps(
+        maf_blocks=maf_blocks,
     )
     write_summary(
         summary_out,
+        seed=args.seed,
         sequence_length=len(reference),
         indel_affected_bp=indel_bp,
+        total_snps=total_snps,
         snps_without_indels=snps_without_indels,
     )
-    for sample_name, sequence in sample_records:
-        maf_blocks = align_sample_to_reference(
-            reference=reference,
-            sample_name=sample_name,
-            sample_sequence=sequence,
-            events=per_sample_events[sample_name],
-        )
-        write_maf(maf_dir / f"{sample_name}.maf", maf_blocks)
+    for sample_name in sample_names:
+        sample_blocks = [block for block in maf_blocks if block.sample_name == sample_name]
+        write_maf(maf_dir / f"{sample_name}.maf", sample_blocks)
 
 
 if __name__ == "__main__":

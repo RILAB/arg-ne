@@ -37,8 +37,9 @@ outputJustGT: true
 # direct_max_missing_count: 0
 # direct_max_missing_fraction: 0.0
 # direct_mask_indels: true
+# direct_mask_indel_adjacent_snps: true
 # direct_treat_n_as_missing: true
-# direct_allow_multiallelic_snps: false
+# direct_allow_multiallelic_snps: true
 # direct_maf_threads: 2
 # direct_maf_mem_mb: 48000
 # direct_maf_time: "24:00:00"

@@ -42,9 +42,10 @@ Key options:
 
 - `direct_max_missing_count`: maximum number of missing samples allowed at a retained site
 - `direct_max_missing_fraction`: alternate missingness threshold as a fraction of samples
-- `direct_mask_indels`: if `true`, positions touched by indels are masked into the BED output
+- `direct_mask_indels`: if `true`, the direct pipeline masks reference positions directly touched by indels
+- `direct_mask_indel_adjacent_snps`: defaults to `true`; if `true`, SNPs immediately adjacent to an insertion or deletion are also masked
 - `direct_treat_n_as_missing`: if `true`, `N` and other non-ACGT calls are treated as missing
-- `direct_allow_multiallelic_snps`: if `false`, multiallelic SNP sites are masked instead of emitted
+- `direct_allow_multiallelic_snps`: defaults to `true`; set to `false` to mask multiallelic SNP sites instead of emitting them
 
 ## Run 
 

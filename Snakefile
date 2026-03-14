@@ -46,8 +46,9 @@ FILTER_MULTIALLELIC = _config_bool(config.get("filter_multiallelic", False))
 BGZIP_OUTPUT = _config_bool(config.get("bgzip_output", True))
 ADD_REFERENCE = _config_bool(config.get("add_reference", False))
 DIRECT_MAF_PIPELINE = _config_bool(config.get("direct_maf_pipeline", False))
-DIRECT_ALLOW_MULTIALLELIC = _config_bool(config.get("direct_allow_multiallelic_snps", False))
+DIRECT_ALLOW_MULTIALLELIC = _config_bool(config.get("direct_allow_multiallelic_snps", True))
 DIRECT_MASK_INDELS = _config_bool(config.get("direct_mask_indels", True))
+DIRECT_MASK_INDEL_ADJACENT_SNPS = _config_bool(config.get("direct_mask_indel_adjacent_snps", True))
 DIRECT_TREAT_N_AS_MISSING = _config_bool(config.get("direct_treat_n_as_missing", True))
 DIRECT_MAX_MISSING_COUNT = config.get("direct_max_missing_count")
 DIRECT_MAX_MISSING_FRACTION = config.get("direct_max_missing_fraction")
@@ -455,6 +456,7 @@ rule direct_maf_sites:
         ),
         allow_multiallelic=DIRECT_ALLOW_MULTIALLELIC,
         mask_indels=DIRECT_MASK_INDELS,
+        mask_indel_adjacent_snps=DIRECT_MASK_INDEL_ADJACENT_SNPS,
         treat_n_as_missing=DIRECT_TREAT_N_AS_MISSING,
         out_prefix=lambda wc: str(_direct_prefix(wc.contig)),
     shell:
@@ -478,6 +480,9 @@ rule direct_maf_sites:
         fi
         if [ "{params.mask_indels}" = "True" ]; then
           cmd+=(--mask-indels)
+        fi
+        if [ "{params.mask_indel_adjacent_snps}" = "False" ]; then
+          cmd+=(--keep-indel-adjacent-snps)
         fi
         if [ "{params.treat_n_as_missing}" = "True" ]; then
           cmd+=(--treat-n-as-missing)
