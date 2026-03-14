@@ -123,9 +123,11 @@ def to_percentages(counts: list[int], length: int, window_bp: int) -> list[float
     return values
 
 
-def svg_multi_series_plot(
+def svg_series_plot(
     xs: list[int],
-    series: list[tuple[str, str, list[float]]],
+    label: str,
+    color: str,
+    values: list[float],
     *,
     width: int = 900,
     height: int = 280,
@@ -137,7 +139,7 @@ def svg_multi_series_plot(
     x_max = max(xs) if xs else 1
     if x_max == x_min:
         x_max = x_min + 1
-    y_max = max((max(values) for _label, _color, values in series if values), default=1.0)
+    y_max = max(values, default=1.0)
     y_max = max(y_max, 1.0)
 
     def x_scale(x_val: int) -> float:
@@ -171,16 +173,14 @@ def svg_multi_series_plot(
 
     legend_x = margin["left"] + 10
     legend_y = margin["top"] + 8
-    for idx, (label, color, values) in enumerate(series):
-        points = " ".join(
-            f"{x_scale(x):.2f},{y_scale(y):.2f}" for x, y in zip(xs, values)
-        )
-        parts.append(f'<polyline fill="none" stroke="{color}" stroke-width="2" points="{points}"/>')
-        for x, y in zip(xs, values):
-            parts.append(f'<circle cx="{x_scale(x):.2f}" cy="{y_scale(y):.2f}" r="2.5" fill="{color}"/>')
-        y = legend_y + idx * 18
-        parts.append(f'<line x1="{legend_x}" y1="{y}" x2="{legend_x + 18}" y2="{y}" stroke="{color}" stroke-width="2"/>')
-        parts.append(f'<text x="{legend_x + 24}" y="{y + 4}" font-size="11" font-family="sans-serif">{html.escape(label)}</text>')
+    points = " ".join(
+        f"{x_scale(x):.2f},{y_scale(y):.2f}" for x, y in zip(xs, values)
+    )
+    parts.append(f'<polyline fill="none" stroke="{color}" stroke-width="2" points="{points}"/>')
+    for x, y in zip(xs, values):
+        parts.append(f'<circle cx="{x_scale(x):.2f}" cy="{y_scale(y):.2f}" r="2.5" fill="{color}"/>')
+    parts.append(f'<line x1="{legend_x}" y1="{legend_y}" x2="{legend_x + 18}" y2="{legend_y}" stroke="{color}" stroke-width="2"/>')
+    parts.append(f'<text x="{legend_x + 24}" y="{legend_y + 4}" font-size="11" font-family="sans-serif">{html.escape(label)}</text>')
 
     parts.append("</svg>")
     return "\n".join(parts)
@@ -260,16 +260,13 @@ def build_report(
                             f"<tr><td>{html.escape(key)}</td><td>{html.escape(summary[key])}</td></tr>\n"
                         )
                 handle.write("</table>\n")
-            handle.write(
-                svg_multi_series_plot(
-                    xs,
-                    [
-                        ("Invariant (%)", "#4C78A8", inv_pct),
-                        ("Variable (%)", "#F58518", var_pct),
-                        ("Missing (%)", "#E45756", miss_pct),
-                    ],
-                )
-            )
+            for label, color, values in (
+                ("Invariant (%)", "#4C78A8", inv_pct),
+                ("Variable (%)", "#F58518", var_pct),
+                ("Missing (%)", "#E45756", miss_pct),
+            ):
+                handle.write(f"<h3>{html.escape(label)}</h3>\n")
+                handle.write(svg_series_plot(xs, label, color, values))
         handle.write("</body>\n</html>\n")
 
 
