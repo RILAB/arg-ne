@@ -1,37 +1,27 @@
 # Paths
-maf_dir: example_data
-reference_fasta: example_data/ref.fa
+maf_dir: example_mafs
+reference_fasta: example_mafs/sim.reference.fa 
 
 # Output location
 results_dir: example_results
 
-# Optional: list of contigs to process. If omitted, the workflow runs the
-# contigs shared across all MAFs and present in the reference FASTA.
-# contigs:
-#   - 1
-
-# Optional: override sample list (default is all *.maf or *.maf.gz in maf_dir)
-# samples:
-#   - sampleA
-#   - sampleB
-
 # Direct MAF pipeline options
-# direct_max_missing_count: 0
-# direct_max_missing_fraction: 0.0
-# direct_mask_indels: true
-# direct_mask_indel_adjacent_snps: true
-# direct_treat_n_as_missing: true
-# direct_allow_multiallelic_snps: true
+# max_missing_count: 0
+# max_missing_fraction: 0.0
+# mask_indels: true
+# mask_indel_adjacent_snps: true
+# treat_n_as_missing: true
+# allow_multiallelic_snps: true
 
 # Resource defaults
 default_threads: 2
-default_mem_mb: 48000
+default_mem_mb: 12000
 default_time: "24:00:00"
 
 # Rule-specific resources
-# direct_maf_threads: 2
-# direct_maf_mem_mb: 48000
-# direct_maf_time: "24:00:00"
+# maf_threads: 2
+# maf_mem_mb: 96000
+# maf_time: "72:00:00"
 
 # SLURM profile defaults
 slurm_account: account

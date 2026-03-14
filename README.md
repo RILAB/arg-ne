@@ -24,19 +24,31 @@ Edit `config.yaml` and set:
 
 Optional controls:
 
-- `contigs`: explicit contigs to run
-- `samples`: explicit sample list
-- `direct_max_missing_count`
-- `direct_max_missing_fraction`
-- `direct_mask_indels`
-- `direct_mask_indel_adjacent_snps`
-- `direct_treat_n_as_missing`
-- `direct_allow_multiallelic_snps`
+- `max_missing_count`
+- `max_missing_fraction`
+- `mask_indels`
+- `mask_indel_adjacent_snps`
+- `treat_n_as_missing`
+- `allow_multiallelic_snps`
+
+Advanced override:
+
+- `contigs`: restrict the run to specific contigs instead of using the shared MAF/reference contigs automatically
+- `samples`: restrict the run to specific sample basenames instead of using all `*.maf` / `*.maf.gz` files in `maf_dir`
+
+Missingness thresholds:
+
+- `max_missing_count` is an absolute number of missing samples allowed at a retained site.
+- `max_missing_fraction` is a fraction of samples allowed to be missing.
+- If both are set, the workflow uses the stricter threshold.
+- The fraction is converted to a count with downward truncation. For example, with 10 samples, `0.15` allows `1` missing sample.
 
 Indel masking behavior:
 
-- `direct_mask_indels: true` masks reference positions directly overlapped by deletions.
-- `direct_mask_indel_adjacent_snps: true` additionally masks SNPs immediately adjacent to an insertion or deletion.
+- `mask_indels: true` masks reference positions directly overlapped by deletions.
+- `mask_indel_adjacent_snps: true` additionally masks SNPs immediately adjacent to an insertion or deletion.
+- `mask_indels: false` disables indel-based masking entirely, so indel-overlapped and indel-adjacent sites are judged only by the remaining filters such as missingness.
+- `mask_indel_adjacent_snps` only has an effect when `mask_indels: true`.
 
 ## Run
 
@@ -70,7 +82,7 @@ pytest -q
 
 ## Simulation Helper
 
-The repository includes [scripts/simulate_msprime_indels.py](/Users/jeffreyross-ibarra/src/argprep/scripts/simulate_msprime_indels.py) for generating haploid test datasets with msprime SNP variation plus branch-based indels on the tree sequence.
+The repository includes [scripts/simulate_msprime_indels.py](https://github.com/RILAB/argprep/blob/main/scripts/simulate_msprime_indels.py) for generating haploid test datasets with msprime SNP variation plus branch-based indels on the tree sequence.
 
 Example:
 

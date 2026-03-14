@@ -32,14 +32,23 @@ MAF_DIR = Path(config["maf_dir"]).resolve()
 ORIG_REF_FASTA = Path(config["reference_fasta"]).resolve()
 RESULTS_DIR = Path(config.get("results_dir", "results")).resolve()
 
-DIRECT_ALLOW_MULTIALLELIC = _config_bool(config.get("direct_allow_multiallelic_snps", True))
-DIRECT_MASK_INDELS = _config_bool(config.get("direct_mask_indels", True))
-DIRECT_MASK_INDEL_ADJACENT_SNPS = _config_bool(
-    config.get("direct_mask_indel_adjacent_snps", True)
+ALLOW_MULTIALLELIC = _config_bool(
+    config.get("allow_multiallelic_snps", config.get("direct_allow_multiallelic_snps", True))
 )
-DIRECT_TREAT_N_AS_MISSING = _config_bool(config.get("direct_treat_n_as_missing", True))
-DIRECT_MAX_MISSING_COUNT = config.get("direct_max_missing_count")
-DIRECT_MAX_MISSING_FRACTION = config.get("direct_max_missing_fraction")
+MASK_INDELS = _config_bool(config.get("mask_indels", config.get("direct_mask_indels", True)))
+MASK_INDEL_ADJACENT_SNPS = _config_bool(
+    config.get(
+        "mask_indel_adjacent_snps",
+        config.get("direct_mask_indel_adjacent_snps", True),
+    )
+)
+TREAT_N_AS_MISSING = _config_bool(
+    config.get("treat_n_as_missing", config.get("direct_treat_n_as_missing", True))
+)
+MAX_MISSING_COUNT = config.get("max_missing_count", config.get("direct_max_missing_count"))
+MAX_MISSING_FRACTION = config.get(
+    "max_missing_fraction", config.get("direct_max_missing_fraction")
+)
 
 DEFAULT_MEM_MB = int(config.get("default_mem_mb", 48000))
 DEFAULT_THREADS = int(config.get("default_threads", 2))
@@ -263,10 +272,10 @@ PY
 
 
 rule direct_maf_sites:
-    threads: int(config.get("direct_maf_threads", DEFAULT_THREADS))
+    threads: int(config.get("maf_threads", config.get("direct_maf_threads", DEFAULT_THREADS)))
     resources:
-        mem_mb=int(config.get("direct_maf_mem_mb", DEFAULT_MEM_MB)),
-        time=str(config.get("direct_maf_time", DEFAULT_TIME))
+        mem_mb=int(config.get("maf_mem_mb", config.get("direct_maf_mem_mb", DEFAULT_MEM_MB))),
+        time=str(config.get("maf_time", config.get("direct_maf_time", DEFAULT_TIME)))
     input:
         mafs=lambda wc: [_maf_input(sample) for sample in SAMPLES],
         ref=str(DIRECT_REF_FASTA),
@@ -276,21 +285,22 @@ rule direct_maf_sites:
         variants=str(RESULTS_DIR / "sites" / "combined.{contig}.variants.vcf"),
         mask=str(RESULTS_DIR / "sites" / "combined.{contig}.masked.bed"),
         summary=str(RESULTS_DIR / "sites" / "combined.{contig}.site_summary.tsv"),
+        coverage=str(RESULTS_DIR / "sites" / "combined.{contig}.coverage.txt"),
     params:
         maf_dir=str(MAF_DIR),
         samples=" ".join(SAMPLES),
         max_missing_count=(
-            None if DIRECT_MAX_MISSING_COUNT in (None, "") else int(DIRECT_MAX_MISSING_COUNT)
+            None if MAX_MISSING_COUNT in (None, "") else int(MAX_MISSING_COUNT)
         ),
         max_missing_fraction=(
             None
-            if DIRECT_MAX_MISSING_FRACTION in (None, "")
-            else float(DIRECT_MAX_MISSING_FRACTION)
+            if MAX_MISSING_FRACTION in (None, "")
+            else float(MAX_MISSING_FRACTION)
         ),
-        allow_multiallelic=DIRECT_ALLOW_MULTIALLELIC,
-        mask_indels=DIRECT_MASK_INDELS,
-        mask_indel_adjacent_snps=DIRECT_MASK_INDEL_ADJACENT_SNPS,
-        treat_n_as_missing=DIRECT_TREAT_N_AS_MISSING,
+        allow_multiallelic=ALLOW_MULTIALLELIC,
+        mask_indels=MASK_INDELS,
+        mask_indel_adjacent_snps=MASK_INDEL_ADJACENT_SNPS,
+        treat_n_as_missing=TREAT_N_AS_MISSING,
         out_prefix=lambda wc: str(_direct_prefix(wc.contig)),
     shell:
         """
@@ -321,23 +331,4 @@ rule direct_maf_sites:
           cmd+=(--treat-n-as-missing)
         fi
         "${{cmd[@]}}"
-        """
-
-
-rule direct_check_coverage:
-    input:
-        all_sites=lambda wc: str(_direct_all_sites_out(wc.contig)),
-        mask=lambda wc: str(_direct_mask_out(wc.contig)),
-        fai=REF_FAI,
-    output:
-        report=str(RESULTS_DIR / "sites" / "combined.{contig}.coverage.txt"),
-    shell:
-        """
-        set -euo pipefail
-        python "{workflow.basedir}/scripts/check_split_coverage.py" \
-          --site-vcf "{input.all_sites}" \
-          --mask-bed "{input.mask}" \
-          --fai "{input.fai}" \
-          --chrom "{wildcards.contig}" \
-          --report-out "{output.report}"
         """

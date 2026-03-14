@@ -290,6 +290,47 @@ def intervals_from_positions(contig: str, masked_positions: list[int]) -> list[t
     return [(contig, start, end) for start, end in merged]
 
 
+def summarize_site_and_mask_coverage(
+    contig: str,
+    contig_len: int,
+    site_positions_0based: list[int],
+    masked_positions_0based: list[int],
+) -> dict[str, int | str]:
+    site_intervals = merge_intervals([(pos, pos + 1) for pos in site_positions_0based])
+    mask_intervals = merge_intervals([(pos, pos + 1) for pos in masked_positions_0based])
+
+    i = j = 0
+    overlap = 0
+    while i < len(site_intervals) and j < len(mask_intervals):
+        site_start, site_end = site_intervals[i]
+        mask_start, mask_end = mask_intervals[j]
+        if site_end <= mask_start:
+            i += 1
+            continue
+        if mask_end <= site_start:
+            j += 1
+            continue
+        overlap += min(site_end, mask_end) - max(site_start, mask_start)
+        if site_end <= mask_end:
+            i += 1
+        else:
+            j += 1
+    if overlap:
+        raise ValueError(f"overlap detected for {contig}: site_vcf vs mask_bed={overlap}")
+
+    total = sum(end - start for start, end in merge_intervals(site_intervals + mask_intervals))
+    if total != contig_len:
+        raise ValueError(f"coverage mismatch for {contig}: union={total}, chrom_len={contig_len}")
+
+    return {
+        "chrom": contig,
+        "site_bp": sum(end - start for start, end in site_intervals),
+        "mask_bed_bp": sum(end - start for start, end in mask_intervals),
+        "total_bp": total,
+        "chrom_len": contig_len,
+    }
+
+
 def main() -> None:
     args = parse_args()
     maf_dir = Path(args.maf_dir)
@@ -332,6 +373,7 @@ def main() -> None:
     variants_path = out_prefix.with_suffix(out_prefix.suffix + ".variants.vcf")
     mask_path = out_prefix.with_suffix(out_prefix.suffix + ".masked.bed")
     summary_path = out_prefix.with_suffix(out_prefix.suffix + ".site_summary.tsv")
+    coverage_path = out_prefix.with_suffix(out_prefix.suffix + ".coverage.txt")
 
     all_sites_path.parent.mkdir(parents=True, exist_ok=True)
     with open_text(all_sites_path, "wt") as all_sites, open_text(variants_path, "wt") as variants:
@@ -340,6 +382,7 @@ def main() -> None:
             variants.write(f"{line}\n")
 
         masked_positions: list[int] = []
+        retained_positions: list[int] = []
         counts: Counter[str] = Counter()
 
         for idx, ref_base in enumerate(contig_seq):
@@ -391,6 +434,7 @@ def main() -> None:
             if not alt_order and allele_set == {ref_base}:
                 counts["all_sites"] += 1
                 counts["invariant"] += 1
+                retained_positions.append(idx)
                 genotypes = [format_gt(code, alt_order) for code in call_codes]
                 record = (
                     f"{contig}\t{pos}\t.\t{ref_base}\t.\t.\tPASS\t{info};SC=invariant\tGT\t"
@@ -401,6 +445,7 @@ def main() -> None:
 
             counts["all_sites"] += 1
             counts["variants"] += 1
+            retained_positions.append(idx)
             genotypes = [format_gt(code, alt_order) for code in call_codes]
             alt_field = ",".join(alt_order)
             record = (
@@ -412,6 +457,21 @@ def main() -> None:
 
     bed_lines = [f"{chrom}\t{start}\t{end}" for chrom, start, end in intervals_from_positions(contig, masked_positions)]
     write_lines(mask_path, bed_lines)
+
+    coverage = summarize_site_and_mask_coverage(
+        contig,
+        contig_len,
+        retained_positions,
+        masked_positions,
+    )
+    coverage_lines = [
+        f"chrom={coverage['chrom']}",
+        f"site_bp={coverage['site_bp']}",
+        f"mask_bed_bp={coverage['mask_bed_bp']}",
+        f"total_bp={coverage['total_bp']}",
+        f"chrom_len={coverage['chrom_len']}",
+    ]
+    write_lines(coverage_path, coverage_lines)
 
     summary_lines = [
         "metric\tvalue",
