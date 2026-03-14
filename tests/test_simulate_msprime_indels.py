@@ -88,7 +88,7 @@ def test_align_sample_to_reference_emits_expected_gaps():
 
     assert sample_sequence == "ATTGT"
     assert len(blocks) == 1
-    assert blocks[0].ancestral_seq == "AC--GT"
+    assert blocks[0].reference_seq == "AC--GT"
     assert blocks[0].sample_seq == "A-TTGT"
 
 
@@ -103,7 +103,7 @@ def test_align_sample_to_reference_preserves_downstream_snp_coordinates():
     )
 
     assert sample_sequence == "ACGGGTTCGT"
-    assert blocks[0].ancestral_seq == "AC--GTACGT"
+    assert blocks[0].reference_seq == "AC--GTACGT"
     assert blocks[0].sample_seq == "ACGGGTTCGT"
     assert summarize_reference_overlaps(blocks) == (0, 1, 1)
 
@@ -144,8 +144,8 @@ def test_summarize_reference_overlaps_counts_deleted_bp_and_clean_snps():
             MafBlock(
                 contig="reference",
                 start0=0,
-                ancestral_size=4,
-                ancestral_seq="ACGT",
+                reference_size=4,
+                reference_seq="ACGT",
                 sample_name="sample1",
                 sample_size=4,
                 sample_seq="ACGT",
@@ -153,8 +153,8 @@ def test_summarize_reference_overlaps_counts_deleted_bp_and_clean_snps():
             MafBlock(
                 contig="reference",
                 start0=0,
-                ancestral_size=4,
-                ancestral_seq="ACGT",
+                reference_size=4,
+                reference_seq="ACGT",
                 sample_name="sample2",
                 sample_size=3,
                 sample_seq="-CGT",
@@ -162,8 +162,8 @@ def test_summarize_reference_overlaps_counts_deleted_bp_and_clean_snps():
             MafBlock(
                 contig="reference",
                 start0=0,
-                ancestral_size=4,
-                ancestral_seq="ACGT",
+                reference_size=4,
+                reference_seq="ACGT",
                 sample_name="sample3",
                 sample_size=4,
                 sample_seq="TCGT",
@@ -230,4 +230,5 @@ def test_simulate_msprime_indels_cli_smoke(tmp_path: Path):
     summary_lines = summary_tsv.read_text(encoding="utf-8").splitlines()
     assert summary_lines[0] == "metric\tvalue"
     assert "seed\t7" in summary_lines
+    assert any(line.startswith("reference_bp_with_indel_in_ge1_sample\t") for line in summary_lines)
     assert any(line.startswith("total_snps\t") for line in summary_lines)

@@ -1,6 +1,6 @@
 # ARG Pipeline (Direct MAF)
 
-This repository provides a Snakemake workflow for processing AnchorWave MAFs directly into per-contig site outputs. The workflow emits all-sites VCFs, variant-only VCFs, and BED masks from the alignments. Written with the assistance of [Codex](https://openai.com/codex/).
+This repository provides a Snakemake workflow for processing AnchorWave MAFs directly into per-contig site outputs. The workflow emits all-sites VCFs, variant-only VCFs, and BED masks from the alignments. Written using [Codex](https://openai.com/codex/). Note that v1.0 is a major rewrite from v0.4, and no longer uses Tassel or GATK.
 
 ## Requirements
 
@@ -16,7 +16,7 @@ conda activate argprep
 
 ## Configure
 
-Edit `config.yaml` and set:
+Edit `options.yaml` and set:
 
 - `maf_dir`: directory containing `*.maf` or `*.maf.gz`
 - `reference_fasta`: reference FASTA path
@@ -70,6 +70,8 @@ SLURM:
 snakemake --profile profiles/slurm
 ```
 
+Note that Slurm will default to using resources (memory, time) defined in `profiles/slurm/config.yaml`. Parsing the maf file is the most computationally expensive step in the pipeline, and those resources can be modified in the main `options.yaml`.
+
 ## Outputs
 
 Outputs are written under `results/sites/` by default:
@@ -80,7 +82,7 @@ Outputs are written under `results/sites/` by default:
 - `combined.<contig>.site_summary.tsv`
 - `summary.html`
 
-The pipeline still validates that retained sites plus the mask span each contig exactly, but that check is now internal and is no longer written as a separate `coverage.txt` file.
+The pipeline still validates that retained sites plus the mask span each contig exactly, but that check is now internal and is no longer written as a separate `coverage.txt` file.  
 
 ## Testing
 
@@ -90,7 +92,7 @@ pytest -q
 
 ## Simulation Helper
 
-The repository includes [scripts/simulate_msprime_indels.py](https://github.com/RILAB/argprep/blob/main/scripts/simulate_msprime_indels.py) for generating haploid test datasets with msprime SNP variation plus branch-based indels on the tree sequence.
+The repository includes [scripts/simulate_msprime_indels.py](https://github.com/RILAB/argprep/blob/main/scripts/simulate_msprime_indels.py) for generating haploid test datasets with msprime SNP variation plus branch-based indels on the tree sequence.  Note that these simulations are not intended to be evolutionaryily accurate, but simply to give a reasonable example data.
 
 Example:
 
@@ -104,7 +106,7 @@ python scripts/simulate_msprime_indels.py \
   --indel-rate 1e-8 \  # indel events per bp per generation on branches
   --indel-lambda 0.001 \  # exponential indel size rate; mean size = 1/lambda = 1000 bp
   --seed 8675309 \  # RNG seed for reproducibility
-  --out-prefix example_mafs/example  # output prefix for FASTA, MAF, TSV files
+  --out-prefix example_data/example  # output prefix for FASTA, MAF, TSV files
 ```
 
 Outputs:

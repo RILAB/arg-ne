@@ -1,0 +1,23 @@
+# Paths
+maf_dir: example_data/example.maf
+reference_fasta: example_data/example.reference.fa
+
+# Output location
+results_dir: example_results
+
+# Direct MAF pipeline options
+# max_missing_count: 0
+# max_missing_fraction: 0.0
+# mask_indels: true
+# mask_indel_adjacent_snps: true
+# treat_n_as_missing: true
+# allow_multiallelic_snps: true
+
+# Rule-specific resources
+# maf_threads: 2
+# maf_mem_mb: 96000
+# maf_time: "72:00:00"
+
+# SLURM profile defaults
+slurm_account: account
+slurm_partition: partition

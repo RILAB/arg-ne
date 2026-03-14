@@ -13,15 +13,12 @@
 - Multiallelic SNPs are retained by default and can be disabled with `allow_multiallelic_snps`.
 - Coverage validation was simplified: `maf_to_sites.py` now performs the retained-sites-plus-mask contig-span check internally without a separate `coverage.txt` artifact.
 - Added a direct-pipeline `summary.html` report with 100 kb window plots showing percent invariant, percent variable, and percent missing along each contig.
-- The repository was simplified around the direct pipeline:
-  - removed TASSEL, gVCF merge/split code, legacy mask/accessibility generation, and related tests
-  - simplified `config.yaml`, `README.md`, and the conda environment to match the direct-only workflow
 - Added an msprime-based simulation helper that generates:
-  - ancestral/reference FASTA
+  - reference FASTA
   - sample FASTA sequences
-  - pairwise MAFs against the ancestral sequence
+  - pairwise MAFs against the reference sequence
   - realized indel tables
-  - summary truth counts for SNPs and indel-affected ancestral positions
+  - summary truth counts for SNPs and indel-affected reference positions
 
 ## Changes since v0.4
 

@@ -3,11 +3,11 @@
 Simulate haploid sequences with msprime SNP variation and branch-based indels.
 
 Outputs:
-  - <prefix>.reference.fa : ungapped ancestral/reference sequence
+  - <prefix>.reference.fa : ungapped reference sequence
   - <prefix>.samples.fa   : simulated sample sequences after SNPs and indels
   - <prefix>.indels.tsv   : per-sample indel event table
-  - <prefix>.summary.tsv  : summary counts for indel-affected ancestral bp and SNPs
-  - <prefix>.maf/         : pairwise MAFs for each sample vs ancestral sequence
+  - <prefix>.summary.tsv  : summary counts for indel-affected reference bp and SNPs
+  - <prefix>.maf/         : pairwise MAFs for each sample vs reference sequence
 
 Notes:
   - `theta` and `rho` use the usual population-scaled convention
@@ -46,8 +46,8 @@ class IndelEvent:
 class MafBlock:
     contig: str
     start0: int
-    ancestral_size: int
-    ancestral_seq: str
+    reference_size: int
+    reference_seq: str
     sample_name: str
     sample_size: int
     sample_seq: str
@@ -115,7 +115,7 @@ def write_summary(
         handle.write("metric\tvalue\n")
         handle.write(f"seed\t{seed}\n")
         handle.write(f"sequence_length\t{sequence_length}\n")
-        handle.write(f"ancestral_bp_with_indel_in_ge1_sample\t{indel_affected_bp}\n")
+        handle.write(f"reference_bp_with_indel_in_ge1_sample\t{indel_affected_bp}\n")
         handle.write(f"total_snps\t{total_snps}\n")
         handle.write(f"snps_without_overlapping_indel\t{snps_without_indels}\n")
 
@@ -136,10 +136,10 @@ def write_maf(path: Path, blocks: list[MafBlock]) -> None:
             handle.write("\n")
             handle.write("a score=0\n")
             handle.write(
-                f"s {block.contig} {block.start0} {block.ancestral_size} + {block.ancestral_size} {block.ancestral_seq}\n"
+                f"s {block.contig} {block.start0} {block.reference_size} + {block.reference_size} {block.reference_seq}\n"
             )
             handle.write(
-                f"s {block.sample_name} {block.start0} {block.sample_size} + {block.ancestral_size} {block.sample_seq}\n"
+                f"s {block.sample_name} {block.start0} {block.sample_size} + {block.reference_size} {block.sample_seq}\n"
             )
 
 
@@ -438,8 +438,8 @@ def align_sample_to_reference(
         MafBlock(
             contig="reference",
             start0=0,
-            ancestral_size=len(reference),
-            ancestral_seq=aligned_ref,
+            reference_size=len(reference),
+            reference_seq=aligned_ref,
             sample_name=sample_name,
             sample_size=len(realized_sequence),
             sample_seq=aligned_sample,
@@ -452,7 +452,7 @@ def summarize_reference_overlaps(maf_blocks: list[MafBlock]) -> tuple[int, int, 
     all_snp_positions: set[int] = set()
     for block in maf_blocks:
         ref_pos0 = block.start0
-        for ref_base, sample_base in zip(block.ancestral_seq, block.sample_seq, strict=True):
+        for ref_base, sample_base in zip(block.reference_seq, block.sample_seq, strict=True):
             if ref_base == "-":
                 continue
             if sample_base == "-":

@@ -6,7 +6,7 @@ from snakemake.io import glob_wildcards
 
 from scripts.common import read_maf_contigs
 
-configfile: "config.yaml"
+configfile: "options.yaml"
 
 wildcard_constraints:
     contig="[^/]+"
@@ -32,32 +32,20 @@ MAF_DIR = Path(config["maf_dir"]).resolve()
 ORIG_REF_FASTA = Path(config["reference_fasta"]).resolve()
 RESULTS_DIR = Path(config.get("results_dir", "results")).resolve()
 
-ALLOW_MULTIALLELIC = _config_bool(
-    config.get("allow_multiallelic_snps", config.get("direct_allow_multiallelic_snps", True))
-)
-MASK_INDELS = _config_bool(config.get("mask_indels", config.get("direct_mask_indels", True)))
-MASK_INDEL_ADJACENT_SNPS = _config_bool(
-    config.get(
-        "mask_indel_adjacent_snps",
-        config.get("direct_mask_indel_adjacent_snps", True),
-    )
-)
-TREAT_N_AS_MISSING = _config_bool(
-    config.get("treat_n_as_missing", config.get("direct_treat_n_as_missing", True))
-)
-MAX_MISSING_COUNT = config.get("max_missing_count", config.get("direct_max_missing_count"))
-MAX_MISSING_FRACTION = config.get(
-    "max_missing_fraction", config.get("direct_max_missing_fraction")
-)
+ALLOW_MULTIALLELIC = _config_bool(config.get("allow_multiallelic_snps", True))
+MASK_INDELS = _config_bool(config.get("mask_indels", True))
+MASK_INDEL_ADJACENT_SNPS = _config_bool(config.get("mask_indel_adjacent_snps", True))
+TREAT_N_AS_MISSING = _config_bool(config.get("treat_n_as_missing", True))
+MAX_MISSING_COUNT = config.get("max_missing_count")
+MAX_MISSING_FRACTION = config.get("max_missing_fraction")
 
-DEFAULT_MEM_MB = int(config.get("default_mem_mb", 48000))
-DEFAULT_THREADS = int(config.get("default_threads", 2))
-DEFAULT_TIME = str(config.get("default_time", "24:00:00"))
+DEFAULT_MEM_MB = 48000
+DEFAULT_THREADS = 2
+DEFAULT_TIME = "24:00:00"
 SUMMARY_WINDOW_BP = int(config.get("summary_window_bp", 100000))
 
 DIRECT_REF_FASTA = RESULTS_DIR / "refs" / "reference_sites.fa"
 REF_FAI = str(DIRECT_REF_FASTA) + ".fai"
-REF_DICT = str(DIRECT_REF_FASTA.with_suffix(".dict"))
 
 
 def _normalize_contig(name: str) -> str:
@@ -169,12 +157,12 @@ def _active_contig_resolution() -> tuple[list[str], list[str], list[str], list[t
     requested = list(MAF_CONTIG_INTERSECTION)
     if not requested:
         raise ValueError(
-            "No contigs are shared across all MAF files. Set explicit 'contigs' in config.yaml to override."
+            "No contigs are shared across all MAF files. Set explicit 'contigs' in options.yaml to override."
         )
     kept, dropped, remapped = _resolve_requested_contigs(requested, available)
     if not kept:
         raise ValueError(
-            "No shared MAF contigs are present in reference .fai. Set explicit 'contigs' in config.yaml to override."
+            "No shared MAF contigs are present in reference .fai. Set explicit 'contigs' in options.yaml to override."
         )
     return kept, dropped, requested, remapped
 
@@ -235,48 +223,18 @@ checkpoint index_reference:
         ref=str(DIRECT_REF_FASTA),
     output:
         fai=REF_FAI,
-        dict=REF_DICT,
     shell:
         """
         set -euo pipefail
         samtools faidx "{input.ref}"
-        python - <<'PY' "{input.ref}" "{output.dict}"
-from pathlib import Path
-import sys
-
-ref = Path(sys.argv[1])
-out = Path(sys.argv[2])
-name = None
-length = 0
-records = []
-with ref.open("r", encoding="utf-8") as handle:
-    for raw in handle:
-        line = raw.strip()
-        if not line:
-            continue
-        if line.startswith(">"):
-            if name is not None:
-                records.append((name, length))
-            name = line[1:].split()[0]
-            length = 0
-        else:
-            length += len(line)
-if name is not None:
-    records.append((name, length))
-
-with out.open("w", encoding="utf-8") as handle:
-    handle.write("@HD\\tVN:1.6\\tSO:unknown\\n")
-    for contig, contig_len in records:
-        handle.write(f"@SQ\\tSN:{{contig}}\\tLN:{{contig_len}}\\n")
-PY
         """
 
 
 rule direct_maf_sites:
-    threads: int(config.get("maf_threads", config.get("direct_maf_threads", DEFAULT_THREADS)))
+    threads: int(config.get("maf_threads", DEFAULT_THREADS))
     resources:
-        mem_mb=int(config.get("maf_mem_mb", config.get("direct_maf_mem_mb", DEFAULT_MEM_MB))),
-        time=str(config.get("maf_time", config.get("direct_maf_time", DEFAULT_TIME)))
+        mem_mb=int(config.get("maf_mem_mb", DEFAULT_MEM_MB)),
+        time=str(config.get("maf_time", DEFAULT_TIME))
     input:
         mafs=lambda wc: [_maf_input(sample) for sample in SAMPLES],
         ref=str(DIRECT_REF_FASTA),
