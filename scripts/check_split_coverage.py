@@ -1,13 +1,6 @@
 #!/usr/bin/env python3
 """
-Check that split outputs cover the full contig length.
-
-This script sums:
-  - .clean.vcf records (1 bp each)
-  - .inv records (1 bp each; END spans are expanded by split.py)
-  - .clean.mask.bed intervals (0-based, half-open)
-
-and compares the total to the contig length from a reference .fai.
+Check that a direct all-sites VCF and mask BED together cover the full contig.
 """
 
 from __future__ import annotations
@@ -25,21 +18,17 @@ except ModuleNotFoundError:
 
 
 def load_fai_length(path: Path, chrom: str) -> int:
-    # Resolve contig length from the .fai index.
     with path.open("r", encoding="utf-8") as fin:
         for raw in fin:
             if not raw.strip():
                 continue
             cols = raw.rstrip("\n").split("\t")
-            if len(cols) < 2:
-                continue
-            if cols[0] == chrom:
+            if len(cols) >= 2 and cols[0] == chrom:
                 return int(cols[1])
     raise ValueError(f"Chromosome '{chrom}' not found in {path}")
 
 
-def read_clean_inv_intervals(path: Path) -> tuple[str | None, List[Tuple[int, int]]]:
-    # Convert 1-based VCF positions to 0-based half-open intervals.
+def read_site_intervals(path: Path) -> tuple[str | None, List[Tuple[int, int]]]:
     chrom = None
     intervals: List[Tuple[int, int]] = []
     with open_text(path, "rt") as fin:
@@ -51,16 +40,12 @@ def read_clean_inv_intervals(path: Path) -> tuple[str | None, List[Tuple[int, in
                 continue
             if chrom is None:
                 chrom = cols[0]
-            try:
-                pos = int(cols[1])
-            except ValueError:
-                continue
+            pos = int(cols[1])
             intervals.append((pos - 1, pos))
     return chrom, intervals
 
 
 def read_bed_intervals(path: Path) -> tuple[str | None, List[Tuple[int, int]]]:
-    # Read BED intervals directly (already 0-based half-open).
     chrom = None
     intervals: List[Tuple[int, int]] = []
     with path.open("r", encoding="utf-8") as fin:
@@ -72,18 +57,14 @@ def read_bed_intervals(path: Path) -> tuple[str | None, List[Tuple[int, int]]]:
                 continue
             if chrom is None:
                 chrom = cols[0]
-            try:
-                start = int(cols[1])
-                end = int(cols[2])
-            except ValueError:
-                continue
+            start = int(cols[1])
+            end = int(cols[2])
             if end > start:
                 intervals.append((start, end))
     return chrom, intervals
 
 
 def overlap_bp(a: List[Tuple[int, int]], b: List[Tuple[int, int]]) -> int:
-    # Compute total bp overlap between two interval sets.
     i = j = 0
     total = 0
     a = merge_intervals(a)
@@ -105,67 +86,6 @@ def overlap_bp(a: List[Tuple[int, int]], b: List[Tuple[int, int]]) -> int:
     return total
 
 
-def overlap_intervals(
-    a: List[Tuple[int, int]], b: List[Tuple[int, int]]
-) -> List[Tuple[int, int]]:
-    # Return explicit overlap intervals for reporting.
-    i = j = 0
-    overlaps: List[Tuple[int, int]] = []
-    a = merge_intervals(a)
-    b = merge_intervals(b)
-    while i < len(a) and j < len(b):
-        a_s, a_e = a[i]
-        b_s, b_e = b[j]
-        if a_e <= b_s:
-            i += 1
-            continue
-        if b_e <= a_s:
-            j += 1
-            continue
-        start = max(a_s, b_s)
-        end = min(a_e, b_e)
-        if end > start:
-            overlaps.append((start, end))
-        if a_e <= b_e:
-            i += 1
-        else:
-            j += 1
-    return overlaps
-
-
-def format_overlap_report(
-    chrom: str,
-    label: str,
-    overlaps: List[Tuple[int, int]],
-    file_a: Path,
-    file_b: Path,
-    max_show: int = 20,
-) -> str:
-    # Pretty-print overlap intervals with file context for debugging.
-    count = len(overlaps)
-    if count == 0:
-        return f"{label}: 0 overlaps"
-    show = overlaps[:max_show]
-    lines = [
-        f"{label}: {count} overlap intervals (showing up to {max_show})",
-        f"  files: {file_a} vs {file_b}",
-    ]
-    for start, end in show:
-        lines.append(f"  {chrom}:{start}-{end} overlaps {label} ({file_a} vs {file_b})")
-    if count > max_show:
-        lines.append(f"  ... {count - max_show} more")
-    return "\n".join(lines)
-
-
-def _chrom_from_prefix(prefix: Path) -> str | None:
-    # Fallback for empty split outputs: infer contig from combined.<contig> prefix.
-    name = prefix.name
-    marker = "combined."
-    if marker not in name:
-        return None
-    return name.split(marker, 1)[1] or None
-
-
 def summarize_site_and_mask_coverage(
     site_vcf: Path,
     mask_bed: Path,
@@ -173,11 +93,7 @@ def summarize_site_and_mask_coverage(
     *,
     chrom_hint: str | None = None,
 ) -> Dict[str, int | str]:
-    """
-    Validate that site VCF records and mask BED intervals are disjoint and
-    together span the full reference contig.
-    """
-    site_chrom, site_intervals = read_clean_inv_intervals(site_vcf)
+    site_chrom, site_intervals = read_site_intervals(site_vcf)
     bed_chrom, bed_intervals = read_bed_intervals(mask_bed)
 
     chrom = site_chrom or bed_chrom or chrom_hint
@@ -191,16 +107,12 @@ def summarize_site_and_mask_coverage(
     chrom_len = load_fai_length(fai, chrom)
     overlap = overlap_bp(site_intervals, bed_intervals)
     if overlap:
-        raise ValueError(
-            f"overlap detected for {chrom}: site_vcf vs mask_bed={overlap}"
-        )
+        raise ValueError(f"overlap detected for {chrom}: site_vcf vs mask_bed={overlap}")
 
     merged = merge_intervals(site_intervals + bed_intervals)
     total = sum(e - s for s, e in merged)
     if total != chrom_len:
-        raise ValueError(
-            f"coverage mismatch for {chrom}: union={total}, chrom_len={chrom_len}"
-        )
+        raise ValueError(f"coverage mismatch for {chrom}: union={total}, chrom_len={chrom_len}")
 
     return {
         "chrom": chrom,
@@ -212,138 +124,31 @@ def summarize_site_and_mask_coverage(
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Check split coverage against reference length.")
-    ap.add_argument("prefix", nargs="?", help="Prefix for split outputs (e.g., results/split/combined.1)")
-    ap.add_argument("--fai", required=True, help="Reference .fai path for contig lengths")
-    ap.add_argument("--site-vcf", help="Direct all-sites VCF path")
-    ap.add_argument("--mask-bed", help="Direct mask BED path")
-    ap.add_argument("--chrom", help="Explicit chromosome/contig name for direct mode")
+    ap = argparse.ArgumentParser(description="Check direct all-sites coverage against reference length.")
+    ap.add_argument("--site-vcf", required=True, help="All-sites VCF path")
+    ap.add_argument("--mask-bed", required=True, help="Mask BED path")
+    ap.add_argument("--fai", required=True, help="Reference .fai path")
+    ap.add_argument("--chrom", help="Optional explicit chromosome/contig name")
     ap.add_argument("--report-out", help="Optional report output path")
     args = ap.parse_args()
 
-    if args.site_vcf or args.mask_bed:
-        if not args.site_vcf or not args.mask_bed:
-            sys.exit("ERROR: --site-vcf and --mask-bed must be provided together.")
-        try:
-            summary = summarize_site_and_mask_coverage(
-                Path(args.site_vcf),
-                Path(args.mask_bed),
-                Path(args.fai),
-                chrom_hint=args.chrom,
-            )
-        except ValueError as exc:
-            sys.exit(f"ERROR: {exc}")
-
-        report = Path(args.report_out) if args.report_out else Path(args.site_vcf).with_suffix(".coverage.txt")
-        report.write_text(
-            f"chrom={summary['chrom']}\n"
-            f"site_bp={summary['site_bp']}\n"
-            f"mask_bed_bp={summary['mask_bed_bp']}\n"
-            f"total_bp={summary['total_bp']}\n"
-            f"chrom_len={summary['chrom_len']}\n",
-            encoding="utf-8",
+    try:
+        summary = summarize_site_and_mask_coverage(
+            Path(args.site_vcf),
+            Path(args.mask_bed),
+            Path(args.fai),
+            chrom_hint=args.chrom,
         )
-        return
+    except ValueError as exc:
+        sys.exit(f"ERROR: {exc}")
 
-    if not args.prefix:
-        sys.exit("ERROR: prefix is required unless --site-vcf/--mask-bed are used.")
-
-    prefix = Path(args.prefix)
-    clean = prefix.with_suffix(prefix.suffix + ".clean.vcf")
-    inv = prefix.with_suffix(prefix.suffix + ".inv")
-    filtered_bed = prefix.with_suffix(prefix.suffix + ".clean.mask.bed")
-
-    if clean.with_suffix(clean.suffix + ".gz").exists():
-        clean = clean.with_suffix(clean.suffix + ".gz")
-    elif not clean.exists():
-        # Backward compatibility for legacy split output naming.
-        clean = prefix.with_suffix(prefix.suffix + ".clean")
-        if clean.with_suffix(clean.suffix + ".gz").exists():
-            clean = clean.with_suffix(clean.suffix + ".gz")
-    if inv.with_suffix(inv.suffix + ".gz").exists():
-        inv = inv.with_suffix(inv.suffix + ".gz")
-    if not filtered_bed.exists():
-        # Backward compatibility for legacy mask naming.
-        filtered_bed = prefix.with_suffix(prefix.suffix + ".filtered.bed")
-
-    if not clean.exists():
-        sys.exit(f"ERROR: clean file not found: {clean}")
-    if not inv.exists():
-        sys.exit(f"ERROR: inv file not found: {inv}")
-    if not filtered_bed.exists():
-        sys.exit(f"ERROR: filtered bed not found: {filtered_bed}")
-
-    clean_chrom, clean_intervals = read_clean_inv_intervals(clean)
-    inv_chrom, inv_intervals = read_clean_inv_intervals(inv)
-    bed_chrom, bed_intervals = read_bed_intervals(filtered_bed)
-
-    # Determine the contig name from whichever input provides one.
-    chrom = clean_chrom or inv_chrom or bed_chrom or _chrom_from_prefix(prefix)
-    if chrom is None:
-        sys.exit("ERROR: unable to determine chromosome from inputs.")
-
-    for name, c in (("clean", clean_chrom), ("inv", inv_chrom), ("bed", bed_chrom)):
-        if c is not None and c != chrom:
-            sys.exit(f"ERROR: mismatched chromosome in {name}: {c} != {chrom}")
-
-    fai = Path(args.fai)
-    chrom_len = load_fai_length(fai, chrom)
-
-    # Empty split outputs can happen when a contig is absent in all input gVCFs.
-    # Record this as a warning-style report instead of failing the workflow.
-    if not clean_intervals and not inv_intervals and not bed_intervals:
-        report = prefix.with_suffix(prefix.suffix + ".coverage.txt")
-        report.write_text(
-            f"chrom={chrom}\n"
-            "clean_bp=0\n"
-            "inv_bp=0\n"
-            "filtered_bed_bp=0\n"
-            "total_bp=0\n"
-            f"chrom_len={chrom_len}\n"
-            "warning=No records found in clean/inv/clean.mask.bed; likely absent in all gVCFs.\n",
-            encoding="utf-8",
-        )
-        return
-
-    # Overlaps indicate split outputs are not mutually exclusive.
-    overlap_ci = overlap_bp(clean_intervals, inv_intervals)
-    overlap_cb = overlap_bp(clean_intervals, bed_intervals)
-    overlap_ib = overlap_bp(inv_intervals, bed_intervals)
-    if overlap_ci or overlap_cb or overlap_ib:
-        ci_intervals = overlap_intervals(clean_intervals, inv_intervals)
-        cb_intervals = overlap_intervals(clean_intervals, bed_intervals)
-        ib_intervals = overlap_intervals(inv_intervals, bed_intervals)
-        report_lines = [
-            f"ERROR: overlap detected for {chrom}: "
-            f"clean vs inv={overlap_ci}, clean vs filtered_bed={overlap_cb}, "
-            f"inv vs filtered_bed={overlap_ib}",
-            format_overlap_report(chrom, "clean vs inv", ci_intervals, clean, inv),
-            format_overlap_report(
-                chrom, "clean vs filtered_bed", cb_intervals, clean, filtered_bed
-            ),
-            format_overlap_report(
-                chrom, "inv vs filtered_bed", ib_intervals, inv, filtered_bed
-            ),
-        ]
-        sys.exit("\n".join(report_lines))
-
-    # Coverage should match the full contig length after unioning intervals.
-    merged = merge_intervals(clean_intervals + inv_intervals + bed_intervals)
-    total = sum(e - s for s, e in merged)
-    if total != chrom_len:
-        sys.exit(
-            f"ERROR: coverage mismatch for {chrom}: "
-            f"union={total}, chrom_len={chrom_len}"
-        )
-
-    report = prefix.with_suffix(prefix.suffix + ".coverage.txt")
+    report = Path(args.report_out) if args.report_out else Path(args.site_vcf).with_suffix(".coverage.txt")
     report.write_text(
-        f"chrom={chrom}\n"
-        f"clean_bp={sum(e - s for s, e in merge_intervals(clean_intervals))}\n"
-        f"inv_bp={sum(e - s for s, e in merge_intervals(inv_intervals))}\n"
-        f"filtered_bed_bp={sum(e - s for s, e in merge_intervals(bed_intervals))}\n"
-        f"total_bp={total}\n"
-        f"chrom_len={chrom_len}\n",
+        f"chrom={summary['chrom']}\n"
+        f"site_bp={summary['site_bp']}\n"
+        f"mask_bed_bp={summary['mask_bed_bp']}\n"
+        f"total_bp={summary['total_bp']}\n"
+        f"chrom_len={summary['chrom_len']}\n",
         encoding="utf-8",
     )
 
