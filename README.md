@@ -36,6 +36,12 @@ Advanced override:
 - `contigs`: restrict the run to specific contigs instead of using the shared MAF/reference contigs automatically
 - `samples`: restrict the run to specific sample basenames instead of using all `*.maf` / `*.maf.gz` files in `maf_dir`
 
+Example CLI override:
+
+```bash
+snakemake -j 8 --config samples='["sampleA","sampleB"]' contigs='["chr1","chr2"]'
+```
+
 Missingness thresholds:
 
 - `max_missing_count` is an absolute number of missing samples allowed at a retained site.
@@ -88,15 +94,15 @@ Example:
 
 ```bash
 python scripts/simulate_msprime_indels.py \
-  --sequence-length 10000 \
-  --num-samples 8 \
-  --theta 0.01 \
-  --rho 0.01 \
-  --ne 10000 \
-  --indel-rate 1e-9 \
-  --indel-lambda 0.01 \
-  --seed 7 \
-  --out-prefix /tmp/sim/example
+  --sequence-length 1000000 \  # ancestral sequence length in bp
+  --num-samples 8 \  # number of haploid samples
+  --theta 0.01 \  # scaled mutation parameter, 4Ne*mu
+  --rho 0.01 \  # scaled recombination parameter, 4Ne*r
+  --ne 10000 \  # effective population size used to convert theta and rho
+  --indel-rate 1e-8 \  # indel events per bp per generation on branches
+  --indel-lambda 0.001 \  # exponential indel size rate; mean size = 1/lambda = 1000 bp
+  --seed 8675309 \  # RNG seed for reproducibility
+  --out-prefix example_mafs/example  # output prefix for FASTA, MAF, TSV files
 ```
 
 Outputs:
