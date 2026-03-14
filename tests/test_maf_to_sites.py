@@ -268,3 +268,78 @@ def test_maf_to_sites_can_keep_snp_adjacent_to_indel(tmp_path: Path):
     assert [record[1] for record in _read_vcf_records(all_sites)] == ["1", "2", "4", "5", "6", "7"]
     assert [record[1] for record in _read_vcf_records(variants)] == ["2", "5"]
     assert _read_bed(masked) == [("chr1", 2, 3), ("chr1", 7, 8)]
+
+
+def test_maf_to_sites_counts_all_deleted_sites_as_masked_indel(tmp_path: Path):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\nAAAA\n", encoding="utf-8")
+    (tmp_path / "ref.fa.fai").write_text("chr1\t4\t6\t4\t5\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "chr1", "AAAA", "s1", "A---")
+    _write_pairwise_maf(maf_dir / "s2.maf", "chr1", "AAAA", "s2", "A---")
+
+    out_prefix = tmp_path / "results" / "combined.chr1"
+    _run(
+        [
+            sys.executable,
+            str(Path("scripts") / "maf_to_sites.py"),
+            "--maf-dir",
+            str(maf_dir),
+            "--reference-fasta",
+            str(ref),
+            "--contig",
+            "chr1",
+            "--out-prefix",
+            str(out_prefix),
+            "--samples",
+            "s1",
+            "s2",
+            "--max-missing-count",
+            "0",
+            "--mask-indels",
+        ],
+        cwd=Path.cwd(),
+    )
+
+    summary = Path(str(out_prefix) + ".site_summary.tsv").read_text(encoding="utf-8")
+    assert "masked_indel\t3\n" in summary
+    assert "masked_no_alignment\t0\n" in summary
+
+
+def test_maf_to_sites_counts_missing_alignment_blocks_as_no_alignment(tmp_path: Path):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\nACGT\n", encoding="utf-8")
+    (tmp_path / "ref.fa.fai").write_text("chr1\t4\t6\t4\t5\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "chr1", "A", "s1", "A")
+    _write_pairwise_maf(maf_dir / "s2.maf", "chr1", "ACGT", "s2", "ACGT")
+
+    out_prefix = tmp_path / "results" / "combined.chr1"
+    _run(
+        [
+            sys.executable,
+            str(Path("scripts") / "maf_to_sites.py"),
+            "--maf-dir",
+            str(maf_dir),
+            "--reference-fasta",
+            str(ref),
+            "--contig",
+            "chr1",
+            "--out-prefix",
+            str(out_prefix),
+            "--samples",
+            "s1",
+            "s2",
+            "--max-missing-count",
+            "0",
+        ],
+        cwd=Path.cwd(),
+    )
+
+    summary = Path(str(out_prefix) + ".site_summary.tsv").read_text(encoding="utf-8")
+    assert "masked_no_alignment\t3\n" in summary
+    assert "masked_missingness\t0\n" in summary

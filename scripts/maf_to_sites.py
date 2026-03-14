@@ -395,9 +395,12 @@ def main() -> None:
             allele_set: set[str] = set()
             missing = 0
             call_codes: list[int] = []
+            has_unaligned_sample = False
             for calls in sample_arrays:
                 code = calls[idx]
                 call_codes.append(code)
+                if code == 0:
+                    has_unaligned_sample = True
                 if code in MISSING_CODES:
                     missing += 1
                     continue
@@ -407,7 +410,12 @@ def main() -> None:
 
             if not alleles:
                 masked_positions.append(idx)
-                counts["masked_no_alignment"] += 1
+                if indel_flags[idx]:
+                    counts["masked_indel"] += 1
+                elif has_unaligned_sample:
+                    counts["masked_no_alignment"] += 1
+                else:
+                    counts["masked_missingness"] += 1
                 continue
 
             alt_order = sorted(a for a in allele_set if a != ref_base)
@@ -421,7 +429,10 @@ def main() -> None:
 
             if missing > allowed_missing:
                 masked_positions.append(idx)
-                counts["masked_missingness"] += 1
+                if has_unaligned_sample:
+                    counts["masked_no_alignment"] += 1
+                else:
+                    counts["masked_missingness"] += 1
                 continue
 
             if len(alt_order) > 1 and not args.allow_multiallelic_snps:
