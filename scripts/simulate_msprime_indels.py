@@ -436,7 +436,7 @@ def align_sample_to_reference(
     realized_sequence = "".join(sample_sequence)
     return realized_sequence, [
         MafBlock(
-            contig="ancestral",
+            contig="reference",
             start0=0,
             ancestral_size=len(reference),
             ancestral_seq=aligned_ref,

@@ -373,7 +373,6 @@ def main() -> None:
     variants_path = out_prefix.with_suffix(out_prefix.suffix + ".variants.vcf")
     mask_path = out_prefix.with_suffix(out_prefix.suffix + ".masked.bed")
     summary_path = out_prefix.with_suffix(out_prefix.suffix + ".site_summary.tsv")
-    coverage_path = out_prefix.with_suffix(out_prefix.suffix + ".coverage.txt")
 
     all_sites_path.parent.mkdir(parents=True, exist_ok=True)
     with open_text(all_sites_path, "wt") as all_sites, open_text(variants_path, "wt") as variants:
@@ -458,20 +457,12 @@ def main() -> None:
     bed_lines = [f"{chrom}\t{start}\t{end}" for chrom, start, end in intervals_from_positions(contig, masked_positions)]
     write_lines(mask_path, bed_lines)
 
-    coverage = summarize_site_and_mask_coverage(
+    summarize_site_and_mask_coverage(
         contig,
         contig_len,
         retained_positions,
         masked_positions,
     )
-    coverage_lines = [
-        f"chrom={coverage['chrom']}",
-        f"site_bp={coverage['site_bp']}",
-        f"mask_bed_bp={coverage['mask_bed_bp']}",
-        f"total_bp={coverage['total_bp']}",
-        f"chrom_len={coverage['chrom_len']}",
-    ]
-    write_lines(coverage_path, coverage_lines)
 
     summary_lines = [
         "metric\tvalue",

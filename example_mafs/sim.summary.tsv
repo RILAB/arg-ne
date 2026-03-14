@@ -1,6 +1,0 @@
-metric	value
-seed	1
-sequence_length	10000000
-ancestral_bp_with_indel_in_ge1_sample	7281916
-total_snps	295440
-snps_without_overlapping_indel	102935

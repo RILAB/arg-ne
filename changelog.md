@@ -11,7 +11,8 @@
   - `mask_indels` masks deleted reference positions
   - `mask_indel_adjacent_snps` optionally masks SNPs adjacent to insertions or deletions
 - Multiallelic SNPs are retained by default and can be disabled with `allow_multiallelic_snps`.
-- Coverage validation was simplified: `maf_to_sites.py` now writes `combined.<contig>.coverage.txt` directly and verifies that retained sites plus the mask span the full contig.
+- Coverage validation was simplified: `maf_to_sites.py` now performs the retained-sites-plus-mask contig-span check internally without a separate `coverage.txt` artifact.
+- Added a direct-pipeline `summary.html` report with 100 kb window plots showing percent invariant, percent variable, and percent missing along each contig.
 - The repository was simplified around the direct pipeline:
   - removed TASSEL, gVCF merge/split code, legacy mask/accessibility generation, and related tests
   - simplified `config.yaml`, `README.md`, and the conda environment to match the direct-only workflow

@@ -142,7 +142,7 @@ def test_summarize_reference_overlaps_counts_deleted_bp_and_clean_snps():
     indel_bp, total_snps, snps = summarize_reference_overlaps(
         maf_blocks=[
             MafBlock(
-                contig="ancestral",
+                contig="reference",
                 start0=0,
                 ancestral_size=4,
                 ancestral_seq="ACGT",
@@ -151,7 +151,7 @@ def test_summarize_reference_overlaps_counts_deleted_bp_and_clean_snps():
                 sample_seq="ACGT",
             ),
             MafBlock(
-                contig="ancestral",
+                contig="reference",
                 start0=0,
                 ancestral_size=4,
                 ancestral_seq="ACGT",
@@ -160,7 +160,7 @@ def test_summarize_reference_overlaps_counts_deleted_bp_and_clean_snps():
                 sample_seq="-CGT",
             ),
             MafBlock(
-                contig="ancestral",
+                contig="reference",
                 start0=0,
                 ancestral_size=4,
                 ancestral_seq="ACGT",

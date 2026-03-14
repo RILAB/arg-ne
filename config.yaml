@@ -1,6 +1,6 @@
 # Paths
 maf_dir: example_mafs
-reference_fasta: example_mafs/sim.reference.fa 
+reference_fasta: example_mafs/example.reference.fa
 
 # Output location
 results_dir: example_results

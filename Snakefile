@@ -53,6 +53,7 @@ MAX_MISSING_FRACTION = config.get(
 DEFAULT_MEM_MB = int(config.get("default_mem_mb", 48000))
 DEFAULT_THREADS = int(config.get("default_threads", 2))
 DEFAULT_TIME = str(config.get("default_time", "24:00:00"))
+SUMMARY_WINDOW_BP = int(config.get("summary_window_bp", 100000))
 
 DIRECT_REF_FASTA = RESULTS_DIR / "refs" / "reference_sites.fa"
 REF_FAI = str(DIRECT_REF_FASTA) + ".fai"
@@ -208,7 +209,7 @@ def _all_targets(_wc):
         [str(_direct_all_sites_out(c)) for c in contigs]
         + [str(_direct_variants_out(c)) for c in contigs]
         + [str(_direct_mask_out(c)) for c in contigs]
-        + [str(_direct_prefix(c)) + ".coverage.txt" for c in contigs]
+        + [str(RESULTS_DIR / "summary.html")]
     )
 
 
@@ -264,9 +265,9 @@ if name is not None:
     records.append((name, length))
 
 with out.open("w", encoding="utf-8") as handle:
-    handle.write("@HD\tVN:1.6\tSO:unknown\n")
+    handle.write("@HD\\tVN:1.6\\tSO:unknown\\n")
     for contig, contig_len in records:
-        handle.write(f"@SQ\tSN:{{contig}}\tLN:{{contig_len}}\n")
+        handle.write(f"@SQ\\tSN:{{contig}}\\tLN:{{contig_len}}\\n")
 PY
         """
 
@@ -285,7 +286,6 @@ rule direct_maf_sites:
         variants=str(RESULTS_DIR / "sites" / "combined.{contig}.variants.vcf"),
         mask=str(RESULTS_DIR / "sites" / "combined.{contig}.masked.bed"),
         summary=str(RESULTS_DIR / "sites" / "combined.{contig}.site_summary.tsv"),
-        coverage=str(RESULTS_DIR / "sites" / "combined.{contig}.coverage.txt"),
     params:
         maf_dir=str(MAF_DIR),
         samples=" ".join(SAMPLES),
@@ -331,4 +331,27 @@ rule direct_maf_sites:
           cmd+=(--treat-n-as-missing)
         fi
         "${{cmd[@]}}"
+        """
+
+
+rule summary_report:
+    input:
+        all_sites=lambda wc: [str(_direct_all_sites_out(c)) for c in _active_contigs()],
+        masks=lambda wc: [str(_direct_mask_out(c)) for c in _active_contigs()],
+        summaries=lambda wc: [str(_direct_prefix(c)) + ".site_summary.tsv" for c in _active_contigs()],
+        fai=REF_FAI,
+    output:
+        report=str(RESULTS_DIR / "summary.html"),
+    params:
+        window_bp=SUMMARY_WINDOW_BP,
+    shell:
+        """
+        set -euo pipefail
+        python "{workflow.basedir}/scripts/summary_report.py" \
+          --fai "{input.fai}" \
+          --window-bp "{params.window_bp}" \
+          --report-out "{output.report}" \
+          --all-sites {input.all_sites} \
+          --masked-beds {input.masks} \
+          --site-summaries {input.summaries}
         """

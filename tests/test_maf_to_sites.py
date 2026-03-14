@@ -40,15 +40,6 @@ def _read_bed(path: Path) -> list[tuple[str, int, int]]:
     return rows
 
 
-def _read_coverage(path: Path) -> dict[str, str]:
-    values = {}
-    with path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            key, value = line.rstrip("\n").split("=", 1)
-            values[key] = value
-    return values
-
-
 def test_maf_to_sites_emits_expected_records_and_mask(tmp_path: Path):
     ref = tmp_path / "ref.fa"
     ref.write_text(">chr1\nACGTACGT\n", encoding="utf-8")
@@ -86,7 +77,6 @@ def test_maf_to_sites_emits_expected_records_and_mask(tmp_path: Path):
     all_sites = Path(str(out_prefix) + ".all_sites.vcf")
     variants = Path(str(out_prefix) + ".variants.vcf")
     masked = Path(str(out_prefix) + ".masked.bed")
-    coverage = Path(str(out_prefix) + ".coverage.txt")
 
     all_records = _read_vcf_records(all_sites)
     variant_records = _read_vcf_records(variants)
@@ -95,8 +85,6 @@ def test_maf_to_sites_emits_expected_records_and_mask(tmp_path: Path):
     assert [record[1] for record in all_records] == ["1", "4", "5", "6", "7"]
     assert [record[1] for record in variant_records] == ["5"]
     assert bed == [("chr1", 1, 3), ("chr1", 7, 8)]
-
-    assert _read_coverage(coverage)["total_bp"] == "8"
 
 
 def test_maf_to_sites_keeps_multiallelic_sites_by_default(tmp_path: Path):
@@ -137,7 +125,6 @@ def test_maf_to_sites_keeps_multiallelic_sites_by_default(tmp_path: Path):
     all_sites = Path(str(out_prefix) + ".all_sites.vcf")
     variants = Path(str(out_prefix) + ".variants.vcf")
     masked = Path(str(out_prefix) + ".masked.bed")
-    coverage = Path(str(out_prefix) + ".coverage.txt")
 
     all_records = _read_vcf_records(all_sites)
     variant_records = _read_vcf_records(variants)
@@ -149,7 +136,6 @@ def test_maf_to_sites_keeps_multiallelic_sites_by_default(tmp_path: Path):
     assert all_records[0][9:] == ["0", "1", "2"]
     assert variant_records == all_records
     assert _read_bed(masked) == []
-    assert _read_coverage(coverage)["total_bp"] == "1"
 
 
 def test_maf_to_sites_masks_snp_adjacent_to_insertion(tmp_path: Path):
@@ -189,13 +175,11 @@ def test_maf_to_sites_masks_snp_adjacent_to_insertion(tmp_path: Path):
     all_sites = Path(str(out_prefix) + ".all_sites.vcf")
     variants = Path(str(out_prefix) + ".variants.vcf")
     masked = Path(str(out_prefix) + ".masked.bed")
-    coverage = Path(str(out_prefix) + ".coverage.txt")
 
     all_records = _read_vcf_records(all_sites)
     assert [record[1] for record in all_records] == ["1", "3", "4"]
     assert [record[1] for record in _read_vcf_records(variants)] == []
     assert _read_bed(masked) == [("chr1", 1, 2)]
-    assert _read_coverage(coverage)["total_bp"] == "4"
 
 
 def test_maf_to_sites_can_keep_snp_adjacent_to_insertion(tmp_path: Path):
@@ -236,12 +220,10 @@ def test_maf_to_sites_can_keep_snp_adjacent_to_insertion(tmp_path: Path):
     all_sites = Path(str(out_prefix) + ".all_sites.vcf")
     variants = Path(str(out_prefix) + ".variants.vcf")
     masked = Path(str(out_prefix) + ".masked.bed")
-    coverage = Path(str(out_prefix) + ".coverage.txt")
 
     assert [record[1] for record in _read_vcf_records(all_sites)] == ["1", "2", "3", "4"]
     assert [record[1] for record in _read_vcf_records(variants)] == ["2"]
     assert _read_bed(masked) == []
-    assert _read_coverage(coverage)["total_bp"] == "4"
 
 
 def test_maf_to_sites_can_keep_snp_adjacent_to_indel(tmp_path: Path):
@@ -282,9 +264,7 @@ def test_maf_to_sites_can_keep_snp_adjacent_to_indel(tmp_path: Path):
     all_sites = Path(str(out_prefix) + ".all_sites.vcf")
     variants = Path(str(out_prefix) + ".variants.vcf")
     masked = Path(str(out_prefix) + ".masked.bed")
-    coverage = Path(str(out_prefix) + ".coverage.txt")
 
     assert [record[1] for record in _read_vcf_records(all_sites)] == ["1", "2", "4", "5", "6", "7"]
     assert [record[1] for record in _read_vcf_records(variants)] == ["2", "5"]
     assert _read_bed(masked) == [("chr1", 2, 3), ("chr1", 7, 8)]
-    assert _read_coverage(coverage)["total_bp"] == "8"

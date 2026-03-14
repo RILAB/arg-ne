@@ -77,8 +77,10 @@ Outputs are written under `results/sites/` by default:
 - `combined.<contig>.all_sites.vcf`
 - `combined.<contig>.variants.vcf`
 - `combined.<contig>.masked.bed`
-- `combined.<contig>.coverage.txt`
 - `combined.<contig>.site_summary.tsv`
+- `summary.html`
+
+The pipeline still validates that retained sites plus the mask span each contig exactly, but that check is now internal and is no longer written as a separate `coverage.txt` file.
 
 ## Testing
 
