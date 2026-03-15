@@ -5,7 +5,10 @@ from snakemake.io import glob_wildcards
 
 from scripts.common import normalize_contig, read_maf_contigs
 
-configfile: "options.yaml"
+if not workflow.configfiles:
+    raise ValueError(
+        "A config file is required. Run Snakemake with --configfile path/to/options.yaml."
+    )
 
 wildcard_constraints:
     contig="[^/]+"
@@ -25,6 +28,16 @@ def _config_bool(value, default=False):
         if normalized in {"0", "false", "f", "no", "n", "off", ""}:
             return False
     raise ValueError(f"Invalid boolean config value: {value!r}")
+
+
+REQUIRED_CONFIG_KEYS = ("maf_dir", "reference_fasta")
+missing_config_keys = [key for key in REQUIRED_CONFIG_KEYS if key not in config]
+if missing_config_keys:
+    raise ValueError(
+        "Missing required config keys: "
+        + ", ".join(missing_config_keys)
+        + ". Check the file passed via --configfile."
+    )
 
 
 MAF_DIR = Path(config["maf_dir"]).resolve()

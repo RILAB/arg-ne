@@ -16,7 +16,7 @@ conda activate argprep
 
 ## Configure
 
-Edit `options.yaml` and set:
+Create or edit a config file such as `options.yaml` and set:
 
 - `maf_dir`: directory containing `*.maf` or `*.maf.gz`
 - `reference_fasta`: reference FASTA path
@@ -39,7 +39,7 @@ Advanced override:
 Example CLI override:
 
 ```bash
-snakemake -j 8 --config samples='["sampleA","sampleB"]' contigs='["chr1","chr2"]'
+snakemake -j 8 --configfile options.yaml --config samples='["sampleA","sampleB"]' contigs='["chr1","chr2"]'
 ```
 
 Missingness thresholds:
@@ -61,13 +61,13 @@ Indel masking behavior:
 Local:
 
 ```bash
-snakemake -j 8
+snakemake -j 8 --configfile options.yaml
 ```
 
 SLURM:
 
 ```bash
-snakemake --profile profiles/slurm
+snakemake --profile profiles/slurm --configfile options.yaml
 ```
 
 Note that Slurm will default to using resources (memory, time) defined in `profiles/slurm/config.yaml`. Parsing the maf file is the most computationally expensive step in the pipeline, and those resources can be modified in the main `options.yaml`.
