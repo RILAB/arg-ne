@@ -92,7 +92,7 @@ pytest -q
 
 ## Simulation Helper
 
-The repository includes [scripts/simulate_msprime_indels.py](https://github.com/RILAB/argprep/blob/main/scripts/simulate_msprime_indels.py) for generating haploid test datasets with msprime SNP variation plus branch-based indels on the tree sequence.  Note that these simulations are not intended to be evolutionaryily accurate, but simply to give a reasonable example data.
+The repository includes [scripts/simulate_msprime_indels.py](https://github.com/RILAB/argprep/blob/main/scripts/simulate_msprime_indels.py) for generating haploid test datasets with msprime SNP variation plus branch-based indels on the tree sequence.  Note that these simulations are not intended to be evolutionarily accurate, but simply to give a reasonable example data.
 
 Example:
 

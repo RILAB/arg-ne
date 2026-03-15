@@ -89,7 +89,7 @@ def _resolve_requested_contigs(
     available_set = set(available)
     available_norm: dict[str, list[str]] = {}
     for name in available:
-        available_norm.setdefault(_normalize_contig(name), []).append(name)
+        available_norm.setdefault(normalize_contig(name), []).append(name)
 
     kept: list[str] = []
     dropped: list[str] = []
@@ -101,7 +101,7 @@ def _resolve_requested_contigs(
         if req in available_set:
             mapped = req
         else:
-            candidates = available_norm.get(_normalize_contig(req), [])
+            candidates = available_norm.get(normalize_contig(req), [])
             if len(candidates) == 1:
                 mapped = candidates[0]
                 remapped.append((req, mapped))
