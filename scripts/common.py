@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gzip
+import re
 from pathlib import Path
 from typing import Iterable, TextIO
 
@@ -25,6 +26,19 @@ def open_text(
 
 def open_fasta(path: Path) -> TextIO:
     return open_text(path, "rt")
+
+
+def normalize_contig(name: str) -> str:
+    name = name.strip().lower()
+    name = re.sub(r"^chr", "", name, flags=re.IGNORECASE)
+    m = re.match(r"^(.*?)(\d+)$", name)
+    if m:
+        prefix, num = m.groups()
+        num = num.lstrip("0") or "0"
+        name = f"{prefix}{num}"
+    else:
+        name = name.lstrip("0")
+    return name if name else "0"
 
 
 def read_fasta_contigs(path: Path) -> list[str]:

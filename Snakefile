@@ -1,10 +1,9 @@
-import re
 import sys
 from pathlib import Path
 
 from snakemake.io import glob_wildcards
 
-from scripts.common import read_maf_contigs
+from scripts.common import normalize_contig, read_maf_contigs
 
 configfile: "options.yaml"
 
@@ -46,20 +45,6 @@ SUMMARY_WINDOW_BP = int(config.get("summary_window_bp", 100000))
 
 DIRECT_REF_FASTA = RESULTS_DIR / "refs" / "reference_sites.fa"
 REF_FAI = str(DIRECT_REF_FASTA) + ".fai"
-
-
-def _normalize_contig(name: str) -> str:
-    name = name.strip().lower()
-    name = re.sub(r"^chr", "", name, flags=re.IGNORECASE)
-    m = re.match(r"^(.*?)(\d+)$", name)
-    if m:
-        prefix, num = m.groups()
-        num = num.lstrip("0") or "0"
-        name = f"{prefix}{num}"
-    else:
-        name = name.lstrip("0")
-    return name if name else "0"
-
 
 def _maf_path_for_sample(sample: str) -> Path:
     maf = MAF_DIR / f"{sample}.maf"

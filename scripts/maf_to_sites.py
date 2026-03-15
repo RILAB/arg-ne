@@ -17,10 +17,10 @@ from pathlib import Path
 from typing import Iterable, Iterator
 
 try:
-    from scripts.common import merge_intervals, open_text
+    from scripts.common import merge_intervals, normalize_contig, open_text
 except ModuleNotFoundError:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from scripts.common import merge_intervals, open_text
+    from scripts.common import merge_intervals, normalize_contig, open_text
 
 
 NUC_TO_CODE = {
@@ -160,10 +160,10 @@ def choose_sample_record(block: list[MafRecord], contig: str) -> tuple[MafRecord
     if not block:
         return None
     ref = block[0]
-    if ref.src != contig:
+    if normalize_contig(ref.src) != normalize_contig(contig):
         return None
     for record in block[1:]:
-        if record.src != contig:
+        if normalize_contig(record.src) != normalize_contig(contig):
             return ref, record
     return None
 

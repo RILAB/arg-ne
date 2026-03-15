@@ -343,3 +343,44 @@ def test_maf_to_sites_counts_missing_alignment_blocks_as_no_alignment(tmp_path: 
     summary = Path(str(out_prefix) + ".site_summary.tsv").read_text(encoding="utf-8")
     assert "masked_no_alignment\t3\n" in summary
     assert "masked_missingness\t0\n" in summary
+
+
+def test_maf_to_sites_matches_normalized_contig_names(tmp_path: Path):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">1\nACGT\n", encoding="utf-8")
+    (tmp_path / "ref.fa.fai").write_text("1\t4\t3\t4\t5\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "chr1", "ACGT", "s1", "ACGT")
+    _write_pairwise_maf(maf_dir / "s2.maf", "chr1", "ACGT", "s2", "ATGT")
+
+    out_prefix = tmp_path / "results" / "combined.1"
+    _run(
+        [
+            sys.executable,
+            str(Path("scripts") / "maf_to_sites.py"),
+            "--maf-dir",
+            str(maf_dir),
+            "--reference-fasta",
+            str(ref),
+            "--contig",
+            "1",
+            "--out-prefix",
+            str(out_prefix),
+            "--samples",
+            "s1",
+            "s2",
+            "--max-missing-count",
+            "0",
+        ],
+        cwd=Path.cwd(),
+    )
+
+    all_records = _read_vcf_records(Path(str(out_prefix) + ".all_sites.vcf"))
+    variant_records = _read_vcf_records(Path(str(out_prefix) + ".variants.vcf"))
+    summary = Path(str(out_prefix) + ".site_summary.tsv").read_text(encoding="utf-8")
+
+    assert [record[1] for record in all_records] == ["1", "2", "3", "4"]
+    assert [record[1] for record in variant_records] == ["2"]
+    assert "masked_no_alignment\t0\n" in summary
