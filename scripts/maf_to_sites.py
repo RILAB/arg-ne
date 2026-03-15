@@ -162,9 +162,10 @@ def choose_sample_record(block: list[MafRecord], contig: str) -> tuple[MafRecord
     ref = block[0]
     if normalize_contig(ref.src) != normalize_contig(contig):
         return None
-    for record in block[1:]:
-        if normalize_contig(record.src) != normalize_contig(contig):
-            return ref, record
+    if len(block) >= 2:
+        # Some pairwise MAFs use the same contig name for both the reference
+        # and query rows, so the second alignment row is still the sample.
+        return ref, block[1]
     return None
 
 
