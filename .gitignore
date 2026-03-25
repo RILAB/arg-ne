@@ -5,7 +5,6 @@ gvcf/*
 results/*
 logs/*
 logs/**
-example_data/*
 .snakemake/
 slurm-*.out
 *.snakemake.log
