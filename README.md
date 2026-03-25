@@ -30,6 +30,7 @@ Optional controls:
 - `mask_indel_adjacent_snps`
 - `treat_n_as_missing`
 - `allow_multiallelic_snps`
+- `add_ref`
 
 Advanced override:
 
@@ -55,6 +56,11 @@ Indel masking behavior:
 - `mask_indel_adjacent_snps: true` additionally masks SNPs immediately adjacent to an insertion or deletion.
 - `mask_indels: false` disables indel-based masking entirely, so indel-overlapped and indel-adjacent sites are judged only by the remaining filters such as missingness.
 - `mask_indel_adjacent_snps` only has an effect when `mask_indels: true`.
+
+Reference-sample behavior:
+
+- `add_ref: true` appends a synthetic `REF` sample to both final VCFs.
+- The added sample is emitted as genotype `0` at every retained site in `all_sites` and `variants`.
 
 ## Run
 

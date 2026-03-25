@@ -49,6 +49,14 @@ def _read_vcf_records(path: Path) -> list[list[str]]:
     return records
 
 
+def _read_vcf_header_line(path: Path) -> str:
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if line.startswith("#CHROM\t"):
+                return line.rstrip("\n")
+    raise AssertionError(f"No VCF header line found in {path}")
+
+
 def _read_bed(path: Path) -> list[tuple[str, int, int]]:
     rows = []
     with path.open("r", encoding="utf-8") as handle:

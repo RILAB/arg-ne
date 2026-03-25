@@ -1,3 +1,8 @@
+## Changes since v1.0
+
+- Added optional `add_ref` output behavior so final `all_sites` and `variants` VCFs can include a synthetic `REF` sample with genotype `0` at every retained site.
+- Fixed .gitignore not updating example_data
+
 ## New Pipeline Argrep v1.0
 
 - Replaced the legacy TASSEL/gVCF/GATK workflow with a direct MAF-to-sites pipeline.

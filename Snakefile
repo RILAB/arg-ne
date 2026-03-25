@@ -48,6 +48,7 @@ ALLOW_MULTIALLELIC = _config_bool(config.get("allow_multiallelic_snps", True))
 MASK_INDELS = _config_bool(config.get("mask_indels", True))
 MASK_INDEL_ADJACENT_SNPS = _config_bool(config.get("mask_indel_adjacent_snps", True))
 TREAT_N_AS_MISSING = _config_bool(config.get("treat_n_as_missing", True))
+ADD_REF = _config_bool(config.get("add_ref", False))
 MAX_MISSING_COUNT = config.get("max_missing_count")
 MAX_MISSING_FRACTION = config.get("max_missing_fraction")
 
@@ -257,6 +258,7 @@ rule direct_maf_sites:
         mask_indels=MASK_INDELS,
         mask_indel_adjacent_snps=MASK_INDEL_ADJACENT_SNPS,
         treat_n_as_missing=TREAT_N_AS_MISSING,
+        add_ref=ADD_REF,
         out_prefix=lambda wc: str(_direct_prefix(wc.contig)),
     shell:
         """
@@ -285,6 +287,9 @@ rule direct_maf_sites:
         fi
         if [ "{params.treat_n_as_missing}" = "True" ]; then
           cmd+=(--treat-n-as-missing)
+        fi
+        if [ "{params.add_ref}" = "True" ]; then
+          cmd+=(--add-ref)
         fi
         "${{cmd[@]}}"
         """

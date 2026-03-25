@@ -81,6 +81,7 @@ def parse_args() -> argparse.Namespace:
         action="store_false",
     )
     ap.add_argument("--treat-n-as-missing", action="store_true", default=False)
+    ap.add_argument("--add-ref", action="store_true", default=False)
     return ap.parse_args()
 
 
@@ -341,6 +342,7 @@ def main() -> None:
     samples = sorted(args.samples) if args.samples else discover_samples(maf_dir)
     if not samples:
         raise ValueError(f"No samples found under {maf_dir}")
+    output_samples = [*samples, "REF"] if args.add_ref else samples
 
     contig_seq = read_contig_sequence(reference_fasta, contig)
     contig_len = len(contig_seq)
@@ -377,7 +379,7 @@ def main() -> None:
 
     all_sites_path.parent.mkdir(parents=True, exist_ok=True)
     with open_text(all_sites_path, "wt") as all_sites, open_text(variants_path, "wt") as variants:
-        for line in vcf_header(contig, contig_len, samples):
+        for line in vcf_header(contig, contig_len, output_samples):
             all_sites.write(f"{line}\n")
             variants.write(f"{line}\n")
 
@@ -447,6 +449,8 @@ def main() -> None:
                 counts["invariant"] += 1
                 retained_positions.append(idx)
                 genotypes = [format_gt(code, alt_order) for code in call_codes]
+                if args.add_ref:
+                    genotypes.append("0")
                 record = (
                     f"{contig}\t{pos}\t.\t{ref_base}\t.\t.\tPASS\t{info};SC=invariant\tGT\t"
                     + "\t".join(genotypes)
@@ -458,6 +462,8 @@ def main() -> None:
             counts["variants"] += 1
             retained_positions.append(idx)
             genotypes = [format_gt(code, alt_order) for code in call_codes]
+            if args.add_ref:
+                genotypes.append("0")
             alt_field = ",".join(alt_order)
             record = (
                 f"{contig}\t{pos}\t.\t{ref_base}\t{alt_field}\t.\tPASS\t{info};SC=variant\tGT\t"

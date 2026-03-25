@@ -12,6 +12,7 @@ mask_indels: true
 mask_indel_adjacent_snps: true
 treat_n_as_missing: true
 allow_multiallelic_snps: true
+add_ref: false
 
 # Rule-specific resources
 maf_threads: 2

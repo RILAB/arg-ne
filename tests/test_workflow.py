@@ -128,6 +128,61 @@ def test_workflow_rejects_ambiguous_contig_remap(tmp_path: Path) -> None:
     importlib.util.find_spec("snakemake") is None,
     reason="snakemake is not installed in the test environment",
 )
+def test_workflow_add_ref_appends_reference_sample_to_final_vcfs(tmp_path: Path) -> None:
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">1\nAC\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "1", "AC", "s1", "AC")
+    _write_pairwise_maf(maf_dir / "s2.maf", "1", "AC", "s2", "AT")
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "\n".join(
+            [
+                "maf_dir: maf",
+                "reference_fasta: ref.fa",
+                "results_dir: results",
+                'samples: ["s1", "s2"]',
+                "max_missing_count: 0",
+                "mask_indels: false",
+                "mask_indel_adjacent_snps: false",
+                "treat_n_as_missing: true",
+                "allow_multiallelic_snps: true",
+                "add_ref: true",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_snakemake(tmp_path, config, str(tmp_path / "results" / "summary.html"))
+    assert result.returncode == 0, result.stderr
+
+    all_sites = tmp_path / "results" / "sites" / "combined.1.all_sites.vcf"
+    variants = tmp_path / "results" / "sites" / "combined.1.variants.vcf"
+
+    all_lines = all_sites.read_text(encoding="utf-8").splitlines()
+    variant_lines = variants.read_text(encoding="utf-8").splitlines()
+
+    assert next(line for line in all_lines if line.startswith("#CHROM\t")).endswith("\ts1\ts2\tREF")
+    assert next(line for line in variant_lines if line.startswith("#CHROM\t")).endswith("\ts1\ts2\tREF")
+
+    all_records = [line.split("\t") for line in all_lines if line and not line.startswith("#")]
+    variant_records = [line.split("\t") for line in variant_lines if line and not line.startswith("#")]
+
+    assert [record[1] for record in all_records] == ["1", "2"]
+    assert [record[1] for record in variant_records] == ["2"]
+    assert all_records[0][9:] == ["0", "0", "0"]
+    assert all_records[1][9:] == ["0", "1", "0"]
+    assert variant_records[0][9:] == ["0", "1", "0"]
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("snakemake") is None,
+    reason="snakemake is not installed in the test environment",
+)
 def test_workflow_requires_explicit_configfile(tmp_path: Path) -> None:
     result = _run_snakemake(tmp_path, None, str(tmp_path / "results" / "summary.html"))
     assert result.returncode != 0
