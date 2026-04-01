@@ -373,8 +373,8 @@ def main() -> None:
     )
 
     all_sites_path = out_prefix.with_suffix(out_prefix.suffix + ".all_sites.vcf")
-    variants_path = out_prefix.with_suffix(out_prefix.suffix + ".variants.vcf")
-    mask_path = out_prefix.with_suffix(out_prefix.suffix + ".masked.bed")
+    variants_path = out_prefix.with_suffix(out_prefix.suffix + ".vcf")
+    mask_path = out_prefix.with_suffix(out_prefix.suffix + ".mask.bed")
     summary_path = out_prefix.with_suffix(out_prefix.suffix + ".site_summary.tsv")
 
     all_sites_path.parent.mkdir(parents=True, exist_ok=True)

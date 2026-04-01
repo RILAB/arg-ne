@@ -103,8 +103,8 @@ def test_maf_to_sites_emits_expected_records_and_mask(tmp_path: Path):
     )
 
     all_sites = Path(str(out_prefix) + ".all_sites.vcf")
-    variants = Path(str(out_prefix) + ".variants.vcf")
-    masked = Path(str(out_prefix) + ".masked.bed")
+    variants = Path(str(out_prefix) + ".vcf")
+    masked = Path(str(out_prefix) + ".mask.bed")
 
     all_records = _read_vcf_records(all_sites)
     variant_records = _read_vcf_records(variants)
@@ -151,8 +151,8 @@ def test_maf_to_sites_keeps_multiallelic_sites_by_default(tmp_path: Path):
     )
 
     all_sites = Path(str(out_prefix) + ".all_sites.vcf")
-    variants = Path(str(out_prefix) + ".variants.vcf")
-    masked = Path(str(out_prefix) + ".masked.bed")
+    variants = Path(str(out_prefix) + ".vcf")
+    masked = Path(str(out_prefix) + ".mask.bed")
 
     all_records = _read_vcf_records(all_sites)
     variant_records = _read_vcf_records(variants)
@@ -200,7 +200,7 @@ def test_maf_to_sites_accepts_pairwise_blocks_with_same_src_names(tmp_path: Path
     )
 
     all_records = _read_vcf_records(Path(str(out_prefix) + ".all_sites.vcf"))
-    variant_records = _read_vcf_records(Path(str(out_prefix) + ".variants.vcf"))
+    variant_records = _read_vcf_records(Path(str(out_prefix) + ".vcf"))
     summary = Path(str(out_prefix) + ".site_summary.tsv").read_text(encoding="utf-8")
 
     assert len(all_records) == 1
@@ -246,8 +246,8 @@ def test_maf_to_sites_masks_snp_adjacent_to_insertion(tmp_path: Path):
     )
 
     all_sites = Path(str(out_prefix) + ".all_sites.vcf")
-    variants = Path(str(out_prefix) + ".variants.vcf")
-    masked = Path(str(out_prefix) + ".masked.bed")
+    variants = Path(str(out_prefix) + ".vcf")
+    masked = Path(str(out_prefix) + ".mask.bed")
 
     all_records = _read_vcf_records(all_sites)
     assert [record[1] for record in all_records] == ["1", "3", "4"]
@@ -291,8 +291,8 @@ def test_maf_to_sites_can_keep_snp_adjacent_to_insertion(tmp_path: Path):
     )
 
     all_sites = Path(str(out_prefix) + ".all_sites.vcf")
-    variants = Path(str(out_prefix) + ".variants.vcf")
-    masked = Path(str(out_prefix) + ".masked.bed")
+    variants = Path(str(out_prefix) + ".vcf")
+    masked = Path(str(out_prefix) + ".mask.bed")
 
     assert [record[1] for record in _read_vcf_records(all_sites)] == ["1", "2", "3", "4"]
     assert [record[1] for record in _read_vcf_records(variants)] == ["2"]
@@ -335,8 +335,8 @@ def test_maf_to_sites_can_keep_snp_adjacent_to_indel(tmp_path: Path):
     )
 
     all_sites = Path(str(out_prefix) + ".all_sites.vcf")
-    variants = Path(str(out_prefix) + ".variants.vcf")
-    masked = Path(str(out_prefix) + ".masked.bed")
+    variants = Path(str(out_prefix) + ".vcf")
+    masked = Path(str(out_prefix) + ".mask.bed")
 
     assert [record[1] for record in _read_vcf_records(all_sites)] == ["1", "2", "4", "5", "6", "7"]
     assert [record[1] for record in _read_vcf_records(variants)] == ["2", "5"]
@@ -451,7 +451,7 @@ def test_maf_to_sites_matches_normalized_contig_names(tmp_path: Path):
     )
 
     all_records = _read_vcf_records(Path(str(out_prefix) + ".all_sites.vcf"))
-    variant_records = _read_vcf_records(Path(str(out_prefix) + ".variants.vcf"))
+    variant_records = _read_vcf_records(Path(str(out_prefix) + ".vcf"))
     summary = Path(str(out_prefix) + ".site_summary.tsv").read_text(encoding="utf-8")
 
     assert [record[1] for record in all_records] == ["1", "2", "3", "4"]

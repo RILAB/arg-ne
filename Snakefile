@@ -183,11 +183,11 @@ def _direct_all_sites_out(contig):
 
 
 def _direct_variants_out(contig):
-    return Path(str(_direct_prefix(contig)) + ".variants.vcf")
+    return Path(str(_direct_prefix(contig)) + ".vcf")
 
 
 def _direct_mask_out(contig):
-    return Path(str(_direct_prefix(contig)) + ".masked.bed")
+    return Path(str(_direct_prefix(contig)) + ".mask.bed")
 
 
 def _all_targets(_wc):
@@ -240,8 +240,8 @@ rule direct_maf_sites:
         fai=REF_FAI,
     output:
         all_sites=str(RESULTS_DIR / "sites" / "combined.{contig}.all_sites.vcf"),
-        variants=str(RESULTS_DIR / "sites" / "combined.{contig}.variants.vcf"),
-        mask=str(RESULTS_DIR / "sites" / "combined.{contig}.masked.bed"),
+        variants=str(RESULTS_DIR / "sites" / "combined.{contig}.vcf"),
+        mask=str(RESULTS_DIR / "sites" / "combined.{contig}.mask.bed"),
         summary=str(RESULTS_DIR / "sites" / "combined.{contig}.site_summary.tsv"),
     params:
         maf_dir=str(MAF_DIR),

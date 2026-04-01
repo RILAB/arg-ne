@@ -83,8 +83,8 @@ Note that Slurm will default to using resources (memory, time) defined in `profi
 Outputs are written under `results/sites/` by default:
 
 - `combined.<contig>.all_sites.vcf`
-- `combined.<contig>.variants.vcf`
-- `combined.<contig>.masked.bed`
+- `combined.<contig>.vcf`
+- `combined.<contig>.mask.bed`
 - `combined.<contig>.site_summary.tsv`
 - `summary.html`
 

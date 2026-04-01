@@ -161,7 +161,7 @@ def test_workflow_add_ref_appends_reference_sample_to_final_vcfs(tmp_path: Path)
     assert result.returncode == 0, result.stderr
 
     all_sites = tmp_path / "results" / "sites" / "combined.1.all_sites.vcf"
-    variants = tmp_path / "results" / "sites" / "combined.1.variants.vcf"
+    variants = tmp_path / "results" / "sites" / "combined.1.vcf"
 
     all_lines = all_sites.read_text(encoding="utf-8").splitlines()
     variant_lines = variants.read_text(encoding="utf-8").splitlines()

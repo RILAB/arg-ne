@@ -19,7 +19,7 @@ def test_summary_report_html_contains_separate_plots_per_contig(tmp_path: Path):
         encoding="utf-8",
     )
 
-    masked = tmp_path / "combined.masked.bed"
+    masked = tmp_path / "combined.mask.bed"
     masked.write_text("chr1\t2\t4\nchr1\t5\t10\nchr2\t4\t8\n", encoding="utf-8")
 
     summary1 = tmp_path / "combined.chr1.site_summary.tsv"
