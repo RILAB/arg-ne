@@ -1,6 +1,6 @@
 # Paths
-maf_dir: eaxmple_data/
-reference_fasta: example_data/exaple.reference.fa
+maf_dir: example_data/example_maf/
+reference_fasta: example_data/example.reference.fa
 
 # Output location
 results_dir: example_results
