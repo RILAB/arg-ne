@@ -305,6 +305,7 @@ rule summary_report:
         report=str(RESULTS_DIR / "summary.html"),
     params:
         window_bp=SUMMARY_WINDOW_BP,
+        options_yaml=str(Path(workflow.configfiles[0]).resolve()),
     shell:
         """
         set -euo pipefail
@@ -314,5 +315,6 @@ rule summary_report:
           --report-out "{output.report}" \
           --all-sites {input.all_sites} \
           --masked-beds {input.masks} \
-          --site-summaries {input.summaries}
+          --site-summaries {input.summaries} \
+          --options-yaml "{params.options_yaml}"
         """

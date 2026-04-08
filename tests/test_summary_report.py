@@ -50,6 +50,12 @@ def test_summary_report_html_contains_separate_plots_per_contig(tmp_path: Path):
         encoding="utf-8",
     )
 
+    options_yaml = tmp_path / "options.yaml"
+    options_yaml.write_text(
+        "maf_dir: /tmp/maf\nreference_fasta: /tmp/ref.fa\nadd_ref: true\n",
+        encoding="utf-8",
+    )
+
     report = tmp_path / "summary.html"
     subprocess.run(
         [
@@ -68,6 +74,8 @@ def test_summary_report_html_contains_separate_plots_per_contig(tmp_path: Path):
             "--site-summaries",
             str(summary1),
             str(summary2),
+            "--options-yaml",
+            str(options_yaml),
         ],
         cwd=Path.cwd(),
         check=True,
@@ -83,3 +91,6 @@ def test_summary_report_html_contains_separate_plots_per_contig(tmp_path: Path):
     assert html.count("<h3>Invariant (%)</h3>") == 2
     assert html.count("<h3>Variable (%)</h3>") == 2
     assert html.count("<h3>Missing (%)</h3>") == 2
+    assert "ARGPREP version:" in html
+    assert "Source options file:" in html
+    assert "maf_dir: /tmp/maf" in html

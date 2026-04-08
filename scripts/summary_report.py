@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import subprocess
 from pathlib import Path
 
 try:
@@ -186,6 +187,28 @@ def svg_series_plot(
     return "\n".join(parts)
 
 
+def read_options_yaml(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return f"# Unable to read options file: {path}\n# {exc}"
+
+
+def get_argprep_version() -> str:
+    repo_root = Path(__file__).resolve().parents[1]
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "describe", "--tags", "--always", "--dirty"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+    version = result.stdout.strip()
+    return version if version else "unknown"
+
+
 def build_report(
     all_sites_paths: list[Path],
     mask_paths: list[Path],
@@ -193,6 +216,7 @@ def build_report(
     fai: Path,
     window_bp: int,
     report_out: Path,
+    options_yaml: Path,
 ) -> None:
     lengths = read_fai_lengths(fai)
     invariant_counts: dict[str, list[int]] = {}
@@ -227,7 +251,7 @@ def build_report(
         handle.write("<!doctype html>\n<html lang=\"en\">\n<head>\n")
         handle.write('<meta charset="utf-8" />\n<meta name="viewport" content="width=device-width, initial-scale=1" />\n')
         handle.write("<title>ARGprep summary</title>\n")
-        handle.write("<style>body{font-family:sans-serif;margin:24px;color:#111}table{border-collapse:collapse;margin:12px 0}th,td{border:1px solid #ccc;padding:4px 8px}h1,h2,h3{margin-top:1.4em}</style>\n")
+        handle.write("<style>body{font-family:sans-serif;margin:24px;color:#111}table{border-collapse:collapse;margin:12px 0}th,td{border:1px solid #ccc;padding:4px 8px}h1,h2,h3{margin-top:1.4em}pre{background:#f6f8fa;border:1px solid #d0d7de;border-radius:6px;padding:12px;overflow:auto;white-space:pre-wrap}</style>\n")
         handle.write("</head>\n<body>\n")
         handle.write("<h1>ARGprep Summary</h1>\n")
         handle.write(f"<p>Window size: <code>{window_bp:,}</code> bp</p>\n")
@@ -267,6 +291,14 @@ def build_report(
             ):
                 handle.write(f"<h3>{html.escape(label)}</h3>\n")
                 handle.write(svg_series_plot(xs, label, color, values))
+        handle.write("<h2>Run configuration</h2>\n")
+        handle.write(f"<p>ARGPREP version: <code>{html.escape(get_argprep_version())}</code></p>\n")
+        handle.write(f"<p>Source options file: <code>{html.escape(str(options_yaml))}</code></p>\n")
+        handle.write(
+            "<pre><code>"
+            + html.escape(read_options_yaml(options_yaml))
+            + "</code></pre>\n"
+        )
         handle.write("</body>\n</html>\n")
 
 
@@ -278,6 +310,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--all-sites", nargs="+", required=True)
     ap.add_argument("--masked-beds", nargs="+", required=True)
     ap.add_argument("--site-summaries", nargs="+", required=True)
+    ap.add_argument("--options-yaml", required=True)
     return ap.parse_args()
 
 
@@ -290,6 +323,7 @@ def main() -> None:
         Path(args.fai),
         args.window_bp,
         Path(args.report_out),
+        Path(args.options_yaml),
     )
 
 
