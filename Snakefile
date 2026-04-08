@@ -213,7 +213,7 @@ rule prepare_reference:
         """
         set -euo pipefail
         mkdir -p "$(dirname "{output.ref}")"
-        cp "{input.ref}" "{output.ref}"
+        ln -s "$(realpath "{input.ref}")" "{output.ref}"
         """
 
 

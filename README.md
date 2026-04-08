@@ -49,6 +49,7 @@ Missingness thresholds:
 - `max_missing_fraction` is a fraction of samples allowed to be missing.
 - If both are set, the workflow uses the stricter threshold.
 - The fraction is converted to a count with downward truncation. For example, with 10 samples, `0.15` allows `1` missing sample.
+- **If neither is set, the default is 0 — any site where even one sample is unaligned or missing is masked.** Set one of these options explicitly if you want to retain sites with partial coverage.
 
 Indel masking behavior:
 

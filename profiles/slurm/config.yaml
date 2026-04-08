@@ -15,4 +15,4 @@ latency-wait: 60
 # Override per-rule by adding resources in the Snakefile.
 default-resources:
   - mem_mb=20000
-  - time=2880
+  - time="48:00:00"

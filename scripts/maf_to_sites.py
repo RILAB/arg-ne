@@ -105,7 +105,34 @@ def maf_path_for_sample(maf_dir: Path, sample: str) -> Path:
     raise FileNotFoundError(f"Missing MAF for sample '{sample}' under {maf_dir}")
 
 
+def _read_fai_entry(fai_path: Path, contig: str) -> tuple[int, int, int, int] | None:
+    """Return (length, offset, linebases, linewidth) for a contig from a .fai file."""
+    with fai_path.open("r", encoding="utf-8") as fh:
+        for line in fh:
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) >= 5 and parts[0] == contig:
+                return int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4])
+    return None
+
+
 def read_contig_sequence(reference_fasta: Path, contig: str) -> str:
+    fai_path = Path(str(reference_fasta) + ".fai")
+    if fai_path.exists() and not str(reference_fasta).endswith(".gz"):
+        entry = _read_fai_entry(fai_path, contig)
+        if entry is not None:
+            length, offset, linebases, linewidth = entry
+            full_lines, remainder = divmod(length, linebases)
+            total_bytes = full_lines * linewidth + remainder
+            with open(reference_fasta, "rb") as fh:
+                fh.seek(offset)
+                raw = fh.read(total_bytes)
+            seq = raw.replace(b"\r", b"").replace(b"\n", b"")
+            if len(seq) != length:
+                raise ValueError(
+                    f"FAI seek returned {len(seq)} bases for '{contig}', expected {length}"
+                )
+            return seq.decode("ascii").upper()
+    # Fallback: linear scan (handles .gz or missing .fai)
     seq_parts: list[str] = []
     current: str | None = None
     with open_text(reference_fasta, "rt", errors="ignore") as handle:
@@ -359,12 +386,9 @@ def main() -> None:
             treat_n_as_missing=args.treat_n_as_missing,
         )
         sample_arrays.append(calls)
-        for idx, flag in enumerate(sample_indels):
-            if flag:
-                indel_flags[idx] = 1
-        for idx, flag in enumerate(sample_adjacent_indels):
-            if flag:
-                adjacent_indel_flags[idx] = 1
+        for i in range(len(sample_indels)):
+            indel_flags[i] |= sample_indels[i]
+            adjacent_indel_flags[i] |= sample_adjacent_indels[i]
 
     allowed_missing = missing_threshold(
         len(samples),
