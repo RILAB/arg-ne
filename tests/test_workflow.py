@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -31,13 +32,18 @@ def _run_snakemake(tmp_path: Path, config: Path | None, *targets: str) -> subpro
     ]
     if config is not None:
         cmd.extend(["--configfile", str(config)])
-    cmd.extend(targets)
+    cmd.extend(["--", *targets])
+    # Ensure tools (samtools, etc.) from the active conda env are on PATH
+    env = os.environ.copy()
+    env_bin = str(Path(sys.executable).parent)
+    env["PATH"] = env_bin + os.pathsep + env.get("PATH", "")
     return subprocess.run(
         cmd,
         cwd=repo_root,
         text=True,
         capture_output=True,
         check=False,
+        env=env,
     )
 
 
