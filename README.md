@@ -1,6 +1,6 @@
 # ARGprep Pipeline 
 
-This repository provides a Snakemake workflow for processing AnchorWave MAFs directly into per-contig site outputs. The workflow emits all-sites VCFs, variant-only VCFs, and BED masks from the alignments. Written using [Codex](https://openai.com/codex/). Note that v1.0 is a major rewrite from v0.4, and no longer uses Tassel or GATK.
+This repository provides a Snakemake workflow for processing AnchorWave MAFs directly into per-contig site outputs. The workflow emits all-sites VCFs, variant-only VCFs, and BED masks from the alignments. Written with the aid of [Codex](https://openai.com/codex/) and [Claude](https://claude.ai/). Note that v1.0 was a major rewrite from v0.4, and no longer uses Tassel or GATK.
 
 ## Requirements
 
