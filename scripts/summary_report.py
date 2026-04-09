@@ -258,9 +258,14 @@ def build_report(
         for contig in sorted(lengths):
             length = lengths[contig]
             xs = window_midpoints(length, window_bp)
-            inv_pct = to_percentages(invariant_counts.get(contig, [0] * len(xs)), length, window_bp)
-            var_pct = to_percentages(variant_counts.get(contig, [0] * len(xs)), length, window_bp)
-            miss_pct = to_percentages(masked_counts.get(contig, [0] * len(xs)), length, window_bp)
+            inv_raw = invariant_counts.get(contig, [0] * len(xs))
+            var_raw = variant_counts.get(contig, [0] * len(xs))
+            miss_raw = masked_counts.get(contig, [0] * len(xs))
+            if not any(inv_raw) and not any(var_raw) and not any(miss_raw) and contig not in summaries:
+                continue
+            inv_pct = to_percentages(inv_raw, length, window_bp)
+            var_pct = to_percentages(var_raw, length, window_bp)
+            miss_pct = to_percentages(miss_raw, length, window_bp)
             handle.write(f"<h2>{html.escape(contig)}</h2>\n")
             summary = summaries.get(contig)
             if summary:

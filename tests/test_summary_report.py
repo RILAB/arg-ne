@@ -5,7 +5,7 @@ from pathlib import Path
 
 def test_summary_report_html_contains_separate_plots_per_contig(tmp_path: Path):
     fai = tmp_path / "ref.fa.fai"
-    fai.write_text("chr1\t10\t0\t0\t0\nchr2\t8\t0\t0\t0\n", encoding="utf-8")
+    fai.write_text("chr1\t10\t0\t0\t0\nchr2\t8\t0\t0\t0\nscaffold99\t500\t0\t0\t0\n", encoding="utf-8")
 
     all_sites = tmp_path / "combined.all_sites.vcf"
     all_sites.write_text(
@@ -94,3 +94,5 @@ def test_summary_report_html_contains_separate_plots_per_contig(tmp_path: Path):
     assert "ARGPREP version:" in html
     assert "Source options file:" in html
     assert "maf_dir: /tmp/maf" in html
+    # Scaffolds with no data should be omitted.
+    assert "scaffold99" not in html
