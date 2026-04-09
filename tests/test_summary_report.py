@@ -103,3 +103,6 @@ def test_summary_report_warning_filters_and_deduplicates(monkeypatch, tmp_path: 
     assert "real log warning should be kept" in html
     assert "from shell command block should be ignored" not in html
     assert "explicit echo line should be ignored" not in html
+
+    # Contigs with no data should be omitted from the summary plots section.
+    assert "<h3>1</h3>" not in html

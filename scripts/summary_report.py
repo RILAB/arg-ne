@@ -600,6 +600,12 @@ with report_path.open("w", encoding="utf-8") as handle:
         length = contig_lengths.get(contig, 0)
         if length <= 0:
             continue
+        if (
+            not any(filtered_counts[contig])
+            and not any(inv_counts[contig])
+            and not any(variant_counts[contig])
+        ):
+            continue
         midpoints = []
         for idx in range(len(filtered_counts[contig])):
             start = idx * window
