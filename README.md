@@ -22,15 +22,22 @@ Create or edit a config file such as `options.yaml` and set:
 - `reference_fasta`: reference FASTA path
 - `results_dir`: output directory
 
-Optional controls:
+Optional controls (defaults shown):
 
-- `max_missing_count`
-- `max_missing_fraction`
-- `mask_indels`
-- `mask_indel_adjacent_snps`
-- `treat_n_as_missing`
-- `allow_multiallelic_snps`
-- `add_ref`
+- `max_missing_count` — no default; see missingness thresholds below
+- `max_missing_fraction` — no default; see missingness thresholds below
+- `mask_indels: true` — mask reference positions overlapped by deletions
+- `mask_indel_adjacent_snps: true` — mask SNPs immediately flanking an indel (only applies when `mask_indels: true`)
+- `treat_n_as_missing: false` — treat `N` bases as missing rather than as a call
+- `allow_multiallelic_snps: true` — retain sites with more than two alleles
+- `add_ref: false` — append a synthetic `REF` sample (genotype `0`) to both VCFs
+- `summary_window_bp: 100000` — window size in bp for the per-contig plots in `summary.html`
+
+SLURM resource overrides (for the `direct_maf_sites` rule):
+
+- `maf_threads: 2`
+- `maf_mem_mb: 48000`
+- `maf_time: "24:00:00"`
 
 Advanced override:
 
@@ -89,7 +96,26 @@ Outputs are written under `results/sites/` by default:
 - `combined.<contig>.site_summary.tsv`
 - `summary.html`
 
-The pipeline still validates that retained sites plus the mask span each contig exactly, but that check is now internal and is no longer written as a separate `coverage.txt` file.  
+The `site_summary.tsv` contains one metric per row with columns `metric` and `value`:
+
+| metric | description |
+|---|---|
+| `contig` | contig name |
+| `contig_length` | contig length in bp |
+| `samples` | number of samples |
+| `allowed_missing` | effective missing-sample threshold used |
+| `all_sites` | retained sites (invariant + variant) |
+| `variants` | retained variant sites |
+| `invariant` | retained invariant sites |
+| `masked_total` | total masked positions |
+| `masked_intervals` | number of merged BED intervals in the mask |
+| `masked_missingness` | positions masked due to too many missing samples |
+| `masked_indel` | positions masked due to indel overlap or adjacency |
+| `masked_multiallelic` | positions masked due to more than two alleles |
+| `masked_no_alignment` | positions masked because at least one sample had no alignment |
+| `masked_ref_non_acgt` | reference positions with non-ACGT bases (always masked) |
+
+The pipeline still validates that retained sites plus the mask span each contig exactly, but that check is now internal and is no longer written as a separate `coverage.txt` file.
 
 ## Testing
 
