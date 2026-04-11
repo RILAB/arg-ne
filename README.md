@@ -16,22 +16,28 @@ conda activate argprep
 
 ## Configure
 
-Create or edit a config file such as `options.yaml` and set:
+Create or edit a config file such as `options.yaml`.
+The workflow requires `--configfile` and will fail if it is omitted.
+
+Required keys:
 
 - `maf_dir`: directory containing `*.maf` or `*.maf.gz`
 - `reference_fasta`: reference FASTA path
-- `results_dir`: output directory
+
+Optional path keys:
+
+- `results_dir`: output directory (default: `results`)
 
 Optional controls (defaults shown):
 
-- `max_missing_count` — no default; see missingness thresholds below
-- `max_missing_fraction` — no default; see missingness thresholds below
-- `mask_indels: true` — mask reference positions overlapped by deletions
-- `mask_indel_adjacent_snps: true` — mask SNPs immediately flanking an indel (only applies when `mask_indels: true`)
-- `treat_n_as_missing: false` — treat `N` bases as missing rather than as a call
-- `allow_multiallelic_snps: true` — retain sites with more than two alleles
-- `add_ref: false` — append a synthetic `REF` sample (genotype `0`) to both VCFs
-- `summary_window_bp: 100000` — window size in bp for the per-contig plots in `summary.html`
+- `max_missing_count` - no default; see missingness thresholds below
+- `max_missing_fraction` - no default; see missingness thresholds below
+- `mask_indels: true` - mask reference positions overlapped by deletions
+- `mask_indel_adjacent_snps: true` - mask SNPs immediately flanking an indel (only applies when `mask_indels: true`)
+- `treat_n_as_missing: false` - treat `N` bases as missing rather than as a call
+- `allow_multiallelic_snps: true` - retain sites with more than two alleles
+- `add_ref: false` - append a synthetic `REF` sample (genotype `0`) to both VCFs
+- `summary_window_bp: 100000` - window size in bp for the per-contig plots in `summary.html`
 
 SLURM resource overrides (for the `direct_maf_sites` rule):
 
@@ -39,10 +45,22 @@ SLURM resource overrides (for the `direct_maf_sites` rule):
 - `maf_mem_mb: 48000`
 - `maf_time: "24:00:00"`
 
+SLURM profile keys (required when using `--profile profiles/slurm`):
+
+- `slurm_account`
+- `slurm_partition`
+
 Advanced override:
 
-- `contigs`: restrict the run to specific contigs instead of using the shared MAF/reference contigs automatically
+- `contigs`: restrict the run to specific contigs instead of using the automatic shared-contig behavior
 - `samples`: restrict the run to specific sample basenames instead of using all `*.maf` / `*.maf.gz` files in `maf_dir`
+
+Contig and sample selection behavior:
+
+- If `samples` is omitted, samples are auto-discovered from both `*.maf` and `*.maf.gz` in `maf_dir`.
+- If both `<sample>.maf` and `<sample>.maf.gz` exist, `<sample>.maf` is used.
+- If `contigs` is omitted, the workflow uses the intersection of contigs present in all selected MAFs.
+- Requested contigs are matched to reference `.fai` contigs with normalization (for example `chr01` can map to `1` when unambiguous).
 
 Example CLI override:
 
@@ -56,7 +74,7 @@ Missingness thresholds:
 - `max_missing_fraction` is a fraction of samples allowed to be missing.
 - If both are set, the workflow uses the stricter threshold.
 - The fraction is converted to a count with downward truncation. For example, with 10 samples, `0.15` allows `1` missing sample.
-- **If neither is set, the default is 0 — any site where even one sample is unaligned or missing is masked.** Set one of these options explicitly if you want to retain sites with partial coverage.
+- **If neither is set, the default is 0 - any site where even one sample is unaligned or missing is masked.** Set one of these options explicitly if you want to retain sites with partial coverage.
 
 Indel masking behavior:
 
@@ -84,16 +102,16 @@ SLURM:
 snakemake --profile profiles/slurm --configfile options.yaml
 ```
 
-Note that Slurm will default to using resources (memory, time) defined in `profiles/slurm/config.yaml`. Parsing the maf file is the most computationally expensive step in the pipeline, and those resources can be modified in the main `options.yaml`.
+When using the SLURM profile, set `slurm_account` and `slurm_partition` in your config file. Slurm defaults for other resources are defined in `profiles/slurm/config.yaml`. Parsing the MAFs is the most computationally expensive step in the pipeline, and direct-maf rule resources can be overridden in `options.yaml` (`maf_threads`, `maf_mem_mb`, `maf_time`).
 
 ## Outputs
 
-Outputs are written under `results/sites/` by default:
+Outputs are written under `results/` by default (or under `results_dir` if provided):
 
-- `combined.<contig>.all_sites.vcf`
-- `combined.<contig>.vcf`
-- `combined.<contig>.mask.bed`
-- `combined.<contig>.site_summary.tsv`
+- `sites/combined.<contig>.all_sites.vcf`
+- `sites/combined.<contig>.vcf`
+- `sites/combined.<contig>.mask.bed`
+- `sites/combined.<contig>.site_summary.tsv`
 - `summary.html`
 
 The `site_summary.tsv` contains one metric per row with columns `metric` and `value`:
@@ -125,21 +143,21 @@ pytest -q
 
 ## Simulation Helper
 
-The repository includes [scripts/simulate_msprime_indels.py](https://github.com/RILAB/argprep/blob/main/scripts/simulate_msprime_indels.py) for generating haploid test datasets with msprime SNP variation plus branch-based indels on the tree sequence.  Note that these simulations are not intended to be evolutionarily accurate, but simply to give a reasonable example data.
+The repository includes [scripts/simulate_msprime_indels.py](https://github.com/RILAB/argprep/blob/main/scripts/simulate_msprime_indels.py) for generating haploid test datasets with msprime SNP variation plus branch-based indels on the tree sequence. Note that these simulations are not intended to be evolutionarily accurate, but simply to give a reasonable example data.
 
 Example:
 
 ```bash
 python scripts/simulate_msprime_indels.py \
-  --sequence-length 1000000 \  # ancestral sequence length in bp
-  --num-samples 8 \  # number of haploid samples
-  --theta 0.01 \  # scaled mutation parameter, 4Ne*mu
-  --rho 0.01 \  # scaled recombination parameter, 4Ne*r
-  --ne 10000 \  # effective population size used to convert theta and rho
-  --indel-rate 1e-8 \  # indel events per bp per generation on branches
-  --indel-lambda 0.001 \  # exponential indel size rate; mean size = 1/lambda = 1000 bp
-  --seed 8675309 \  # RNG seed for reproducibility
-  --out-prefix example_data/example  # output prefix for FASTA, MAF, TSV files
+  --sequence-length 1000000 \
+  --num-samples 8 \
+  --theta 0.01 \
+  --rho 0.01 \
+  --ne 10000 \
+  --indel-rate 1e-8 \
+  --indel-lambda 0.001 \
+  --seed 8675309 \
+  --out-prefix example_data/example
 ```
 
 Outputs:
@@ -154,6 +172,6 @@ Summary fields include:
 
 - `seed`
 - `sequence_length`
-- `ancestral_bp_with_indel_in_ge1_sample`
+- `reference_bp_with_indel_in_ge1_sample`
 - `total_snps`
 - `snps_without_overlapping_indel`
