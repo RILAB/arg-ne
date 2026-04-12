@@ -135,6 +135,10 @@ The `site_summary.tsv` contains one metric per row with columns `metric` and `va
 
 The pipeline still validates that retained sites plus the mask span each contig exactly, but that check is now internal and is no longer written as a separate `coverage.txt` file.
 
+## TODO
+
+- **Per-sample assembly quality masking**: support optional per-sample BED files (in each sample's own genome coordinates) with a 0–1 quality score. During MAF parsing, track the sample-coordinate position alongside the reference position (handling `+`/`-` strand). Aligned bases at positions below a user-specified `quality_min` threshold would be treated as missing rather than as a call, integrating transparently with the existing `max_missing_count`/`max_missing_fraction` framework. New config keys: `quality_bed_dir` (directory of `<sample>.bed` files) and `quality_min` (float threshold; feature disabled when omitted).
+
 ## Testing
 
 ```bash
