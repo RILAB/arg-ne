@@ -115,6 +115,74 @@ def test_maf_to_sites_emits_expected_records_and_mask(tmp_path: Path):
     assert bed == [("chr1", 1, 3), ("chr1", 7, 8)]
 
 
+def test_maf_to_sites_emits_per_sample_missing_masks(tmp_path: Path):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\nACGTACGT\n", encoding="utf-8")
+    (tmp_path / "ref.fa.fai").write_text("chr1\t8\t6\t8\t9\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    # s1: fully aligned, no missing data
+    _write_pairwise_maf(maf_dir / "s1.maf", "chr1", "ACGTACGT", "s1", "ACGTACGT")
+    # s2: deletion at ref pos 2 (idx 2), N at ref pos 7 (idx 7) treated as missing
+    _write_pairwise_maf(maf_dir / "s2.maf", "chr1", "ACGTACGT", "s2", "AT-TCCGN")
+
+    out_prefix = tmp_path / "results" / "combined.chr1"
+    _run(
+        [
+            sys.executable,
+            str(Path("scripts") / "maf_to_sites.py"),
+            "--maf-dir", str(maf_dir),
+            "--reference-fasta", str(ref),
+            "--contig", "chr1",
+            "--out-prefix", str(out_prefix),
+            "--samples", "s1", "s2",
+            "--max-missing-count", "0",
+            "--treat-n-as-missing",
+        ],
+        cwd=Path.cwd(),
+    )
+
+    s1_mask = _read_bed(Path(str(out_prefix) + ".s1.missing.bed"))
+    s2_mask = _read_bed(Path(str(out_prefix) + ".s2.missing.bed"))
+
+    assert s1_mask == []
+    assert s2_mask == [("chr1", 2, 3), ("chr1", 7, 8)]
+
+
+def test_maf_to_sites_per_sample_missing_mask_includes_unaligned_positions(tmp_path: Path):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\nACGT\n", encoding="utf-8")
+    (tmp_path / "ref.fa.fai").write_text("chr1\t4\t6\t4\t5\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    # s1: only covers the first base; positions 1-3 have no alignment (code 0)
+    _write_pairwise_maf(maf_dir / "s1.maf", "chr1", "A", "s1", "A")
+    _write_pairwise_maf(maf_dir / "s2.maf", "chr1", "ACGT", "s2", "ACGT")
+
+    out_prefix = tmp_path / "results" / "combined.chr1"
+    _run(
+        [
+            sys.executable,
+            str(Path("scripts") / "maf_to_sites.py"),
+            "--maf-dir", str(maf_dir),
+            "--reference-fasta", str(ref),
+            "--contig", "chr1",
+            "--out-prefix", str(out_prefix),
+            "--samples", "s1", "s2",
+            "--max-missing-count", "0",
+        ],
+        cwd=Path.cwd(),
+    )
+
+    s1_mask = _read_bed(Path(str(out_prefix) + ".s1.missing.bed"))
+    s2_mask = _read_bed(Path(str(out_prefix) + ".s2.missing.bed"))
+
+    assert s1_mask == [("chr1", 1, 4)]  # positions 1, 2, 3 unaligned → merged interval
+    assert s2_mask == []
+
+
 def test_maf_to_sites_keeps_multiallelic_sites_by_default(tmp_path: Path):
     ref = tmp_path / "ref.fa"
     ref.write_text(">chr1\nA\n", encoding="utf-8")

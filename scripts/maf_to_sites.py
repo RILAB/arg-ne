@@ -499,6 +499,14 @@ def main() -> None:
     bed_lines = [f"{chrom}\t{start}\t{end}" for chrom, start, end in intervals_from_positions(contig, masked_positions)]
     write_lines(mask_path, bed_lines)
 
+    for sample, calls in zip(samples, sample_arrays):
+        missing_pos = [idx for idx, code in enumerate(calls) if code in MISSING_CODES]
+        sample_bed_lines = [
+            f"{chrom}\t{start}\t{end}"
+            for chrom, start, end in intervals_from_positions(contig, missing_pos)
+        ]
+        write_lines(Path(str(out_prefix) + f".{sample}.missing.bed"), sample_bed_lines)
+
     summarize_site_and_mask_coverage(
         contig,
         contig_len,

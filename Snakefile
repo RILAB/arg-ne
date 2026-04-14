@@ -190,12 +190,17 @@ def _direct_mask_out(contig):
     return Path(str(_direct_prefix(contig)) + ".mask.bed")
 
 
+def _direct_sample_missing_mask_out(contig, sample):
+    return RESULTS_DIR / "sites" / f"combined.{contig}.{sample}.missing.bed"
+
+
 def _all_targets(_wc):
     contigs = _active_contigs()
     return (
         [str(_direct_all_sites_out(c)) for c in contigs]
         + [str(_direct_variants_out(c)) for c in contigs]
         + [str(_direct_mask_out(c)) for c in contigs]
+        + [str(_direct_sample_missing_mask_out(c, s)) for c in contigs for s in SAMPLES]
         + [str(RESULTS_DIR / "summary.html")]
     )
 
@@ -243,6 +248,10 @@ rule direct_maf_sites:
         variants=str(RESULTS_DIR / "sites" / "combined.{contig}.vcf"),
         mask=str(RESULTS_DIR / "sites" / "combined.{contig}.mask.bed"),
         summary=str(RESULTS_DIR / "sites" / "combined.{contig}.site_summary.tsv"),
+        sample_missing_masks=expand(
+            str(RESULTS_DIR / "sites" / "combined.{{contig}}.{sample}.missing.bed"),
+            sample=SAMPLES,
+        ),
     params:
         maf_dir=str(MAF_DIR),
         samples=" ".join(SAMPLES),
