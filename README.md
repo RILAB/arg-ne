@@ -2,6 +2,9 @@
 
 This repository provides a Snakemake workflow for processing AnchorWave MAFs directly into per-contig site outputs. The workflow emits all-sites VCFs, variant-only VCFs, and BED masks from the alignments. Written with the aid of [Codex](https://openai.com/codex/) and [Claude](https://claude.ai/). Note that v1.0 was a major rewrite from v0.4, and no longer uses Tassel or GATK.
 
+If you use this please cite: Ross-Ibara, J. 2026. ARGprep: A pipeline to prepare pairwise whole-genome alignments for ancestral recombination graph estimation. [![DOI](https://zenodo.org/badge/1131411242.svg)](https://doi.org/10.5281/zenodo.19655050)
+
+
 ## Requirements
 
 - Conda
