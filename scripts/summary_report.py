@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import argparse
 import html
+import re
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 try:
@@ -124,24 +126,37 @@ def to_percentages(counts: list[int], length: int, window_bp: int) -> list[float
     return values
 
 
-def svg_series_plot(
+def fmt_int(s: str) -> str:
+    try:
+        return f"{int(s):,}"
+    except (ValueError, TypeError):
+        return s
+
+
+def _anchor(contig: str) -> str:
+    return "c-" + re.sub(r"[^\w-]", "_", contig)
+
+
+def svg_combined_plot(
     xs: list[int],
-    label: str,
-    color: str,
-    values: list[float],
+    series: list[tuple[str, str, list[float]]],
     *,
     width: int = 900,
-    height: int = 280,
+    height: int = 300,
 ) -> str:
-    margin = {"left": 60, "right": 20, "top": 20, "bottom": 55}
+    """Multi-series line plot; y-axis fixed 0–100% for comparability across contigs.
+
+    Uses polylines only (no per-point circles) to keep SVG element count low
+    even for large chromosomes with thousands of windows.
+    """
+    margin = {"left": 60, "right": 20, "top": 28, "bottom": 55}
     plot_w = width - margin["left"] - margin["right"]
     plot_h = height - margin["top"] - margin["bottom"]
     x_min = min(xs) if xs else 0
     x_max = max(xs) if xs else 1
     if x_max == x_min:
         x_max = x_min + 1
-    y_max = max(values, default=1.0)
-    y_max = max(y_max, 1.0)
+    y_max = 100.0
 
     def x_scale(x_val: int) -> float:
         return margin["left"] + (x_val - x_min) / (x_max - x_min) * plot_w
@@ -150,38 +165,200 @@ def svg_series_plot(
         return margin["top"] + plot_h - (y_val / y_max) * plot_h
 
     parts = [
-        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg" role="img">',
+        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
+        f'xmlns="http://www.w3.org/2000/svg" role="img">',
         '<rect width="100%" height="100%" fill="white"/>',
-        f'<line x1="{margin["left"]}" y1="{margin["top"] + plot_h}" x2="{margin["left"] + plot_w}" y2="{margin["top"] + plot_h}" stroke="#333" stroke-width="1"/>',
-        f'<line x1="{margin["left"]}" y1="{margin["top"]}" x2="{margin["left"]}" y2="{margin["top"] + plot_h}" stroke="#333" stroke-width="1"/>',
-        f'<text x="{width / 2}" y="{height - 10}" text-anchor="middle" font-size="12" font-family="sans-serif">Window midpoint (bp)</text>',
-        f'<text x="18" y="{height / 2}" text-anchor="middle" font-size="12" font-family="sans-serif" transform="rotate(-90 18 {height / 2})">Percent of window</text>',
     ]
 
+    # horizontal grid lines
+    for i in range(5):
+        frac = i / 4
+        y = margin["top"] + plot_h - frac * plot_h
+        parts.append(
+            f'<line x1="{margin["left"]}" y1="{y:.2f}" '
+            f'x2="{margin["left"] + plot_w}" y2="{y:.2f}" '
+            f'stroke="#e0e0e0" stroke-width="1"/>'
+        )
+
+    # axes
+    parts.append(
+        f'<line x1="{margin["left"]}" y1="{margin["top"] + plot_h}" '
+        f'x2="{margin["left"] + plot_w}" y2="{margin["top"] + plot_h}" stroke="#333" stroke-width="1"/>'
+    )
+    parts.append(
+        f'<line x1="{margin["left"]}" y1="{margin["top"]}" '
+        f'x2="{margin["left"]}" y2="{margin["top"] + plot_h}" stroke="#333" stroke-width="1"/>'
+    )
+
+    # axis labels
+    parts.append(
+        f'<text x="{width / 2}" y="{height - 8}" text-anchor="middle" '
+        f'font-size="12" font-family="sans-serif">Window midpoint (bp)</text>'
+    )
+    parts.append(
+        f'<text x="16" y="{height / 2}" text-anchor="middle" font-size="12" '
+        f'font-family="sans-serif" transform="rotate(-90 16 {height / 2})">% of window</text>'
+    )
+
+    # y ticks
     for i in range(5):
         frac = i / 4
         y = margin["top"] + plot_h - frac * plot_h
         val = frac * y_max
-        parts.append(f'<line x1="{margin["left"] - 4}" y1="{y:.2f}" x2="{margin["left"]}" y2="{y:.2f}" stroke="#333" stroke-width="1"/>')
-        parts.append(f'<text x="{margin["left"] - 8}" y="{y + 4:.2f}" text-anchor="end" font-size="10" font-family="sans-serif">{val:.1f}</text>')
+        parts.append(
+            f'<line x1="{margin["left"] - 4}" y1="{y:.2f}" '
+            f'x2="{margin["left"]}" y2="{y:.2f}" stroke="#333" stroke-width="1"/>'
+        )
+        parts.append(
+            f'<text x="{margin["left"] - 8}" y="{y + 4:.2f}" text-anchor="end" '
+            f'font-size="10" font-family="sans-serif">{val:.0f}</text>'
+        )
 
+    # x ticks
     for i in range(5):
         frac = i / 4
         x = margin["left"] + frac * plot_w
         val = int(round(x_min + frac * (x_max - x_min)))
-        parts.append(f'<line x1="{x:.2f}" y1="{margin["top"] + plot_h}" x2="{x:.2f}" y2="{margin["top"] + plot_h + 4}" stroke="#333" stroke-width="1"/>')
-        parts.append(f'<text x="{x:.2f}" y="{margin["top"] + plot_h + 18}" text-anchor="middle" font-size="10" font-family="sans-serif">{val:,}</text>')
+        parts.append(
+            f'<line x1="{x:.2f}" y1="{margin["top"] + plot_h}" '
+            f'x2="{x:.2f}" y2="{margin["top"] + plot_h + 4}" stroke="#333" stroke-width="1"/>'
+        )
+        parts.append(
+            f'<text x="{x:.2f}" y="{margin["top"] + plot_h + 18}" text-anchor="middle" '
+            f'font-size="10" font-family="sans-serif">{val:,}</text>'
+        )
 
-    legend_x = margin["left"] + 10
-    legend_y = margin["top"] + 8
-    points = " ".join(
-        f"{x_scale(x):.2f},{y_scale(y):.2f}" for x, y in zip(xs, values)
+    # series lines + legend entries
+    for idx, (label, color, values) in enumerate(series):
+        if not values:
+            continue
+        points = " ".join(f"{x_scale(x):.2f},{y_scale(y):.2f}" for x, y in zip(xs, values))
+        parts.append(
+            f'<polyline fill="none" stroke="{color}" stroke-width="2" points="{points}"/>'
+        )
+        legend_x = margin["left"] + 10 + idx * 170
+        legend_y = margin["top"] - 16
+        parts.append(
+            f'<line x1="{legend_x}" y1="{legend_y}" x2="{legend_x + 18}" y2="{legend_y}" '
+            f'stroke="{color}" stroke-width="2"/>'
+        )
+        parts.append(
+            f'<text x="{legend_x + 24}" y="{legend_y + 4}" '
+            f'font-size="11" font-family="sans-serif">{html.escape(label)}</text>'
+        )
+
+    parts.append("</svg>")
+    return "\n".join(parts)
+
+
+def svg_genome_overview(
+    contigs: list[str],
+    lengths: list[int],
+    retained: list[int],
+    masked: list[int],
+    *,
+    width: int = 900,
+    height: int = 300,
+) -> str:
+    """Stacked vertical bar chart: retained / masked / unaligned fraction per contig."""
+    if not contigs:
+        return ""
+    margin = {"left": 50, "right": 150, "top": 20, "bottom": 65}
+    plot_w = width - margin["left"] - margin["right"]
+    plot_h = height - margin["top"] - margin["bottom"]
+    n = len(contigs)
+    bar_step = plot_w / n
+    bar_w = bar_step * 0.75
+
+    colors = {"retained": "#4C78A8", "masked": "#E45756", "unaligned": "#bdbdbd"}
+
+    parts = [
+        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
+        f'xmlns="http://www.w3.org/2000/svg" role="img">',
+        '<rect width="100%" height="100%" fill="white"/>',
+    ]
+
+    # horizontal grid lines + y ticks
+    for i in range(5):
+        frac = i / 4
+        y = margin["top"] + plot_h - frac * plot_h
+        pct_label = int(frac * 100)
+        parts.append(
+            f'<line x1="{margin["left"]}" y1="{y:.2f}" '
+            f'x2="{margin["left"] + plot_w}" y2="{y:.2f}" stroke="#e0e0e0" stroke-width="1"/>'
+        )
+        parts.append(
+            f'<line x1="{margin["left"] - 4}" y1="{y:.2f}" '
+            f'x2="{margin["left"]}" y2="{y:.2f}" stroke="#333" stroke-width="1"/>'
+        )
+        parts.append(
+            f'<text x="{margin["left"] - 8}" y="{y + 4:.2f}" text-anchor="end" '
+            f'font-size="10" font-family="sans-serif">{pct_label}</text>'
+        )
+
+    # axes
+    parts.append(
+        f'<line x1="{margin["left"]}" y1="{margin["top"] + plot_h}" '
+        f'x2="{margin["left"] + plot_w}" y2="{margin["top"] + plot_h}" stroke="#333" stroke-width="1"/>'
     )
-    parts.append(f'<polyline fill="none" stroke="{color}" stroke-width="2" points="{points}"/>')
-    for x, y in zip(xs, values):
-        parts.append(f'<circle cx="{x_scale(x):.2f}" cy="{y_scale(y):.2f}" r="2.5" fill="{color}"/>')
-    parts.append(f'<line x1="{legend_x}" y1="{legend_y}" x2="{legend_x + 18}" y2="{legend_y}" stroke="{color}" stroke-width="2"/>')
-    parts.append(f'<text x="{legend_x + 24}" y="{legend_y + 4}" font-size="11" font-family="sans-serif">{html.escape(label)}</text>')
+    parts.append(
+        f'<line x1="{margin["left"]}" y1="{margin["top"]}" '
+        f'x2="{margin["left"]}" y2="{margin["top"] + plot_h}" stroke="#333" stroke-width="1"/>'
+    )
+
+    # y-axis label
+    parts.append(
+        f'<text x="14" y="{height / 2}" text-anchor="middle" font-size="12" '
+        f'font-family="sans-serif" transform="rotate(-90 14 {height / 2})">% of contig</text>'
+    )
+
+    for i, (contig, length, ret, mask) in enumerate(zip(contigs, lengths, retained, masked)):
+        unaligned = max(length - ret - mask, 0)
+        bar_x = margin["left"] + i * bar_step + (bar_step - bar_w) / 2
+        label_x = bar_x + bar_w / 2
+        y_bottom = margin["top"] + plot_h
+
+        def bar_h(val: int) -> float:
+            return (val / length) * plot_h if length > 0 else 0.0
+
+        ret_h = bar_h(ret)
+        mask_h = bar_h(mask)
+        una_h = bar_h(unaligned)
+
+        parts.append(
+            f'<rect x="{bar_x:.2f}" y="{y_bottom - ret_h:.2f}" '
+            f'width="{bar_w:.2f}" height="{ret_h:.2f}" fill="{colors["retained"]}"/>'
+        )
+        parts.append(
+            f'<rect x="{bar_x:.2f}" y="{y_bottom - ret_h - mask_h:.2f}" '
+            f'width="{bar_w:.2f}" height="{mask_h:.2f}" fill="{colors["masked"]}"/>'
+        )
+        parts.append(
+            f'<rect x="{bar_x:.2f}" y="{y_bottom - ret_h - mask_h - una_h:.2f}" '
+            f'width="{bar_w:.2f}" height="{una_h:.2f}" fill="{colors["unaligned"]}"/>'
+        )
+
+        # rotated contig label
+        parts.append(
+            f'<text x="{label_x:.2f}" y="{y_bottom + 8}" text-anchor="end" '
+            f'font-size="11" font-family="sans-serif" '
+            f'transform="rotate(-40 {label_x:.2f} {y_bottom + 8})">'
+            f'{html.escape(contig)}</text>'
+        )
+
+    # legend (right side)
+    legend_x = margin["left"] + plot_w + 16
+    for idx, (color, label) in enumerate([
+        (colors["retained"], "Retained"),
+        (colors["masked"], "Masked"),
+        (colors["unaligned"], "Unaligned"),
+    ]):
+        ly = margin["top"] + 20 + idx * 24
+        parts.append(f'<rect x="{legend_x}" y="{ly}" width="14" height="14" fill="{color}"/>')
+        parts.append(
+            f'<text x="{legend_x + 20}" y="{ly + 11}" '
+            f'font-size="12" font-family="sans-serif">{label}</text>'
+        )
 
     parts.append("</svg>")
     return "\n".join(parts)
@@ -246,65 +423,204 @@ def build_report(
         if contig:
             summaries[contig] = values
 
+    active_contigs = [
+        c for c in sorted(lengths)
+        if any(invariant_counts.get(c, []))
+        or any(variant_counts.get(c, []))
+        or any(masked_counts.get(c, []))
+        or c in summaries
+    ]
+
+    # genome-wide totals (from summary TSVs only)
+    total_length = sum(lengths[c] for c in active_contigs)
+    total_all_sites = sum(int(summaries[c].get("all_sites", 0)) for c in active_contigs if c in summaries)
+    total_variants = sum(int(summaries[c].get("variants", 0)) for c in active_contigs if c in summaries)
+    total_masked = sum(int(summaries[c].get("masked_total", 0)) for c in active_contigs if c in summaries)
+
+    CSS = """\
+body{font-family:sans-serif;margin:24px;color:#111;max-width:1000px}
+table{border-collapse:collapse;margin:12px 0}
+th,td{border:1px solid #ccc;padding:4px 10px;text-align:right}
+th{background:#f0f0f0;text-align:center}
+td:first-child{text-align:left}
+h1,h2,h3{margin-top:1.4em}
+pre{background:#f6f8fa;border:1px solid #d0d7de;border-radius:6px;padding:12px;overflow:auto;white-space:pre-wrap}
+details{margin:8px 0;border:1px solid #d0d7de;border-radius:6px;padding:4px 12px}
+summary{cursor:pointer;font-size:1.05em;font-weight:bold;padding:6px 0;list-style:revert}
+summary:hover{color:#0969da}
+.toc{columns:4;column-gap:1em;margin:12px 0}
+.toc a{display:block;color:#0969da;text-decoration:none;padding:1px 0}
+.toc a:hover{text-decoration:underline}
+tr.warn td{background:#fff8dc}
+tr.bad  td{background:#ffd7d7}
+"""
+
     report_out.parent.mkdir(parents=True, exist_ok=True)
-    with report_out.open("w", encoding="utf-8") as handle:
-        handle.write("<!doctype html>\n<html lang=\"en\">\n<head>\n")
-        handle.write('<meta charset="utf-8" />\n<meta name="viewport" content="width=device-width, initial-scale=1" />\n')
-        handle.write("<title>ARGprep summary</title>\n")
-        handle.write("<style>body{font-family:sans-serif;margin:24px;color:#111}table{border-collapse:collapse;margin:12px 0}th,td{border:1px solid #ccc;padding:4px 8px}h1,h2,h3{margin-top:1.4em}pre{background:#f6f8fa;border:1px solid #d0d7de;border-radius:6px;padding:12px;overflow:auto;white-space:pre-wrap}</style>\n")
-        handle.write("</head>\n<body>\n")
-        handle.write("<h1>ARGprep Summary</h1>\n")
-        handle.write(f"<p>Window size: <code>{window_bp:,}</code> bp</p>\n")
-        for contig in sorted(lengths):
+    with report_out.open("w", encoding="utf-8") as fh:
+        w = fh.write
+        w('<!doctype html>\n<html lang="en">\n<head>\n')
+        w('<meta charset="utf-8" />\n<meta name="viewport" content="width=device-width, initial-scale=1" />\n')
+        w("<title>ARGprep summary</title>\n")
+        w(f"<style>{CSS}</style>\n")
+        w("</head>\n<body>\n")
+        w("<h1>ARGprep Summary</h1>\n")
+        w(
+            f'<p>Generated: <code>{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</code>'
+            f" &nbsp;|&nbsp; Window size: <code>{window_bp:,}</code> bp</p>\n"
+        )
+
+        # ── genome-wide overview ──────────────────────────────────────────────
+        w("<h2>Genome-wide overview</h2>\n")
+        w(svg_genome_overview(
+            active_contigs,
+            [lengths[c] for c in active_contigs],
+            [int(summaries[c].get("all_sites", 0)) if c in summaries else 0 for c in active_contigs],
+            [int(summaries[c].get("masked_total", 0)) if c in summaries else 0 for c in active_contigs],
+        ))
+        w("\n")
+
+        w("<table>\n")
+        w(
+            "<tr><th>Contig</th><th>Length (bp)</th>"
+            "<th>Retained sites</th><th>% retained</th>"
+            "<th>Variants</th><th>% variant</th>"
+            "<th>Masked</th><th>% masked</th></tr>\n"
+        )
+        for c in active_contigs:
+            s = summaries.get(c, {})
+            clen = lengths[c]
+            ret = int(s.get("all_sites", 0))
+            var = int(s.get("variants", 0))
+            mask = int(s.get("masked_total", 0))
+            ret_pct = ret / clen * 100 if clen else 0.0
+            var_pct = var / ret * 100 if ret else 0.0
+            mask_pct = mask / clen * 100 if clen else 0.0
+            row_cls = " class=\"bad\"" if mask_pct > 50 else (" class=\"warn\"" if mask_pct > 25 else "")
+            w(
+                f'<tr{row_cls}>'
+                f'<td><a href="#{_anchor(c)}">{html.escape(c)}</a></td>'
+                f"<td>{clen:,}</td>"
+                f"<td>{ret:,}</td>"
+                f"<td>{ret_pct:.1f}%</td>"
+                f"<td>{var:,}</td>"
+                f"<td>{var_pct:.1f}%</td>"
+                f"<td>{mask:,}</td>"
+                f"<td>{mask_pct:.1f}%</td>"
+                f"</tr>\n"
+            )
+        if active_contigs:
+            ret_pct_all = total_all_sites / total_length * 100 if total_length else 0.0
+            var_pct_all = total_variants / total_all_sites * 100 if total_all_sites else 0.0
+            mask_pct_all = total_masked / total_length * 100 if total_length else 0.0
+            row_cls = " class=\"bad\"" if mask_pct_all > 50 else (" class=\"warn\"" if mask_pct_all > 25 else "")
+            w(
+                f'<tr{row_cls} style="font-weight:bold;border-top:2px solid #999">'
+                f"<td>Total</td>"
+                f"<td>{total_length:,}</td>"
+                f"<td>{total_all_sites:,}</td>"
+                f"<td>{ret_pct_all:.1f}%</td>"
+                f"<td>{total_variants:,}</td>"
+                f"<td>{var_pct_all:.1f}%</td>"
+                f"<td>{total_masked:,}</td>"
+                f"<td>{mask_pct_all:.1f}%</td>"
+                f"</tr>\n"
+            )
+        w("</table>\n")
+
+        # ── table of contents ─────────────────────────────────────────────────
+        w("<h2>Contigs</h2>\n<div class=\"toc\">\n")
+        for c in active_contigs:
+            clen = lengths[c]
+            s = summaries.get(c, {})
+            ret = int(s.get("all_sites", 0))
+            ret_pct = ret / clen * 100 if clen else 0.0
+            w(f'<a href="#{_anchor(c)}">{html.escape(c)} ({ret_pct:.0f}%)</a>\n')
+        w("</div>\n")
+
+        # ── per-contig sections ───────────────────────────────────────────────
+        for contig in active_contigs:
             length = lengths[contig]
             xs = window_midpoints(length, window_bp)
             inv_raw = invariant_counts.get(contig, [0] * len(xs))
             var_raw = variant_counts.get(contig, [0] * len(xs))
             miss_raw = masked_counts.get(contig, [0] * len(xs))
-            if not any(inv_raw) and not any(var_raw) and not any(miss_raw) and contig not in summaries:
-                continue
             inv_pct = to_percentages(inv_raw, length, window_bp)
             var_pct = to_percentages(var_raw, length, window_bp)
             miss_pct = to_percentages(miss_raw, length, window_bp)
-            handle.write(f"<h2>{html.escape(contig)}</h2>\n")
-            summary = summaries.get(contig)
+
+            summary = summaries.get(contig, {})
+            ret = int(summary.get("all_sites", 0))
+            mask = int(summary.get("masked_total", 0))
+            ret_pct_val = ret / length * 100 if length else 0.0
+            mask_pct_val = mask / length * 100 if length else 0.0
+
+            w(f'<details id="{_anchor(contig)}">\n')
+            w(
+                f"<summary>{html.escape(contig)}"
+                f" &mdash; {length:,} bp"
+                f" &nbsp;|&nbsp; {ret_pct_val:.1f}% retained"
+                f" &nbsp;|&nbsp; {mask_pct_val:.1f}% masked"
+                f"</summary>\n"
+            )
+
             if summary:
-                handle.write("<table>\n<tr><th>Metric</th><th>Value</th></tr>\n")
-                for key in (
-                    "contig_length",
-                    "samples",
-                    "allowed_missing",
-                    "all_sites",
-                    "variants",
-                    "invariant",
-                    "masked_total",
-                    "masked_missingness",
-                    "masked_indel",
-                    "masked_multiallelic",
-                    "masked_no_alignment",
-                    "masked_ref_non_acgt",
+                w("<table>\n<tr><th>Metric</th><th>Value</th><th>% of contig</th></tr>\n")
+                for key, label in (
+                    ("contig_length", "Length (bp)"),
+                    ("samples", "Samples"),
+                    ("allowed_missing", "Allowed missing"),
+                    ("all_sites", "Retained sites"),
+                    ("variants", "Variants"),
+                    ("invariant", "Invariant"),
+                    ("masked_total", "Masked total"),
+                    ("masked_missingness", "Masked — missingness"),
+                    ("masked_indel", "Masked — indel"),
+                    ("masked_multiallelic", "Masked — multiallelic"),
+                    ("masked_no_alignment", "Masked — no alignment"),
+                    ("masked_ref_non_acgt", "Masked — non-ACGT ref"),
                 ):
-                    if key in summary:
-                        handle.write(
-                            f"<tr><td>{html.escape(key)}</td><td>{html.escape(summary[key])}</td></tr>\n"
-                        )
-                handle.write("</table>\n")
-            for label, color, values in (
-                ("Invariant (%)", "#4C78A8", inv_pct),
-                ("Variable (%)", "#F58518", var_pct),
-                ("Missing (%)", "#E45756", miss_pct),
-            ):
-                handle.write(f"<h3>{html.escape(label)}</h3>\n")
-                handle.write(svg_series_plot(xs, label, color, values))
-        handle.write("<h2>Run configuration</h2>\n")
-        handle.write(f"<p>ARGPREP version: <code>{html.escape(get_argprep_version())}</code></p>\n")
-        handle.write(f"<p>Source options file: <code>{html.escape(str(options_yaml))}</code></p>\n")
-        handle.write(
-            "<pre><code>"
-            + html.escape(read_options_yaml(options_yaml))
-            + "</code></pre>\n"
-        )
-        handle.write("</body>\n</html>\n")
+                    if key not in summary:
+                        continue
+                    raw_val = summary[key]
+                    fmt_val = fmt_int(raw_val)
+                    pct_cell = ""
+                    if key not in ("samples", "allowed_missing") and length:
+                        try:
+                            pct_cell = f"{int(raw_val) / length * 100:.1f}%"
+                        except (ValueError, TypeError):
+                            pass
+                    row_cls = ""
+                    if key == "masked_total":
+                        try:
+                            mp = int(raw_val) / length * 100 if length else 0.0
+                            row_cls = ' class="bad"' if mp > 50 else (' class="warn"' if mp > 25 else "")
+                        except (ValueError, TypeError):
+                            pass
+                    w(
+                        f"<tr{row_cls}>"
+                        f"<td>{html.escape(label)}</td>"
+                        f"<td>{html.escape(fmt_val)}</td>"
+                        f"<td>{html.escape(pct_cell)}</td>"
+                        f"</tr>\n"
+                    )
+                w("</table>\n")
+
+            w(svg_combined_plot(
+                xs,
+                [
+                    ("Invariant (%)", "#4C78A8", inv_pct),
+                    ("Variable (%)", "#F58518", var_pct),
+                    ("Missing (%)", "#E45756", miss_pct),
+                ],
+            ))
+            w("\n</details>\n")
+
+        # ── run configuration ─────────────────────────────────────────────────
+        w("<h2>Run configuration</h2>\n")
+        w(f"<p>ARGprep version: <code>{html.escape(get_argprep_version())}</code></p>\n")
+        w(f"<p>Source options file: <code>{html.escape(str(options_yaml))}</code></p>\n")
+        w("<pre><code>" + html.escape(read_options_yaml(options_yaml)) + "</code></pre>\n")
+        w("</body>\n</html>\n")
 
 
 def parse_args() -> argparse.Namespace:

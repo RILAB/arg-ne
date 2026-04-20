@@ -88,10 +88,10 @@ def test_summary_report_html_contains_separate_plots_per_contig(tmp_path: Path):
     assert "Invariant (%)" in html
     assert "Variable (%)" in html
     assert "Missing (%)" in html
-    assert html.count("<h3>Invariant (%)</h3>") == 2
-    assert html.count("<h3>Variable (%)</h3>") == 2
-    assert html.count("<h3>Missing (%)</h3>") == 2
-    assert "ARGPREP version:" in html
+    # One combined SVG per active contig (chr1, chr2) — no per-series <h3> headings.
+    assert html.count("<details") == 2
+    assert html.count("<polyline") >= 6  # 3 series × 2 contigs
+    assert "ARGprep version:" in html
     assert "Source options file:" in html
     assert "maf_dir: /tmp/maf" in html
     # Scaffolds with no data should be omitted.
