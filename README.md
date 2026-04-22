@@ -4,7 +4,7 @@ This repository provides a Snakemake workflow for processing AnchorWave MAFs dir
 
 If you use this please cite: 
 
-Ross-Ibarra, J. 2026. ARGprep: A pipeline to prepare pairwise whole-genome alignments for ancestral recombination graph estimation. [![DOI](https://zenodo.org/badge/1131411242.svg)](https://doi.org/10.5281/zenodo.19655050)
+Ross-Ibarra, J. 2026. ARGprep: A pipeline to prepare pairwise whole-genome alignments for ancestral recombination graph estimation. [doi: 10.5281/zenodo.19655050](https://doi.org/10.5281/zenodo.19655050)
 
 
 ## Requirements
