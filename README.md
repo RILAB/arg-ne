@@ -39,7 +39,6 @@ Optional controls (defaults shown):
 - `max_missing_fraction` - no default; see missingness thresholds below
 - `mask_indels: true` - mask reference positions overlapped by deletions
 - `mask_indel_adjacent_snps: true` - mask SNPs immediately flanking an indel (only applies when `mask_indels: true`)
-- `treat_n_as_missing: false` - treat `N` bases as missing rather than as a call
 - `allow_multiallelic_snps: true` - retain sites with more than two alleles
 - `add_ref: false` - append a synthetic `REF` sample (genotype `0`) to both VCFs
 - `summary_window_bp: 100000` - window size in bp for binned per-contig plots in `summary.html` (this does not affect the per-MAF tables)

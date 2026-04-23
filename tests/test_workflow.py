@@ -72,7 +72,6 @@ def test_workflow_remaps_requested_contigs_to_reference_names(tmp_path: Path) ->
                 "max_missing_count: 0",
                 "mask_indels: false",
                 "mask_indel_adjacent_snps: false",
-                "treat_n_as_missing: true",
                 "allow_multiallelic_snps: true",
             ]
         )
@@ -154,7 +153,6 @@ def test_workflow_add_ref_appends_reference_sample_to_final_vcfs(tmp_path: Path)
                 "max_missing_count: 0",
                 "mask_indels: false",
                 "mask_indel_adjacent_snps: false",
-                "treat_n_as_missing: true",
                 "allow_multiallelic_snps: true",
                 "add_ref: true",
             ]

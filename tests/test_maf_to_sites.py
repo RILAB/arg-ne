@@ -97,7 +97,6 @@ def test_maf_to_sites_emits_expected_records_and_mask(tmp_path: Path):
             "--max-missing-count",
             "0",
             "--mask-indels",
-            "--treat-n-as-missing",
         ],
         cwd=Path.cwd(),
     )
@@ -138,7 +137,6 @@ def test_maf_to_sites_emits_per_sample_missing_masks(tmp_path: Path):
             "--out-prefix", str(out_prefix),
             "--samples", "s1", "s2",
             "--max-missing-count", "0",
-            "--treat-n-as-missing",
         ],
         cwd=Path.cwd(),
     )

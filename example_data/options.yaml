@@ -10,7 +10,6 @@ results_dir: example_results
 max_missing_fraction: 0.0
 mask_indels: true
 mask_indel_adjacent_snps: true
-treat_n_as_missing: true
 allow_multiallelic_snps: true
 add_ref: false
 

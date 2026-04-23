@@ -29,7 +29,6 @@ NUC_TO_CODE = {
     "G": 3,
     "T": 4,
     "-": 5,
-    "N": 6,
     "?": 7,
 }
 CODE_TO_BASE = {
@@ -39,7 +38,7 @@ CODE_TO_BASE = {
     4: "T",
 }
 VALID_BASES = {"A", "C", "G", "T"}
-MISSING_CODES = {0, 5, 6, 7}
+MISSING_CODES = {0, 5, 7}
 
 
 @dataclass
@@ -80,7 +79,6 @@ def parse_args() -> argparse.Namespace:
         dest="mask_indel_adjacent_snps",
         action="store_false",
     )
-    ap.add_argument("--treat-n-as-missing", action="store_true", default=False)
     ap.add_argument("--add-ref", action="store_true", default=False)
     return ap.parse_args()
 
@@ -213,7 +211,6 @@ def load_sample_calls(
     contig_len: int,
     *,
     mask_indels: bool,
-    treat_n_as_missing: bool,
 ) -> tuple[bytearray, bytearray, bytearray]:
     calls = bytearray(contig_len)
     indel_flags = bytearray(contig_len)
@@ -256,10 +253,6 @@ def load_sample_calls(
 
             if sample_char in VALID_BASES:
                 _assign_code(calls, idx, NUC_TO_CODE[sample_char])
-                continue
-
-            if sample_char == "N" and not treat_n_as_missing:
-                _assign_code(calls, idx, NUC_TO_CODE["N"])
                 continue
 
             _assign_code(calls, idx, NUC_TO_CODE["?"])
@@ -383,7 +376,6 @@ def main() -> None:
             contig,
             contig_len,
             mask_indels=args.mask_indels,
-            treat_n_as_missing=args.treat_n_as_missing,
         )
         sample_arrays.append(calls)
         for i in range(len(sample_indels)):

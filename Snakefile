@@ -47,7 +47,6 @@ RESULTS_DIR = Path(config.get("results_dir", "results")).resolve()
 ALLOW_MULTIALLELIC = _config_bool(config.get("allow_multiallelic_snps", True))
 MASK_INDELS = _config_bool(config.get("mask_indels", True))
 MASK_INDEL_ADJACENT_SNPS = _config_bool(config.get("mask_indel_adjacent_snps", True))
-TREAT_N_AS_MISSING = _config_bool(config.get("treat_n_as_missing", False))
 ADD_REF = _config_bool(config.get("add_ref", False))
 MAX_MISSING_COUNT = config.get("max_missing_count")
 MAX_MISSING_FRACTION = config.get("max_missing_fraction")
@@ -266,7 +265,6 @@ rule direct_maf_sites:
         allow_multiallelic=ALLOW_MULTIALLELIC,
         mask_indels=MASK_INDELS,
         mask_indel_adjacent_snps=MASK_INDEL_ADJACENT_SNPS,
-        treat_n_as_missing=TREAT_N_AS_MISSING,
         add_ref=ADD_REF,
         out_prefix=lambda wc: str(_direct_prefix(wc.contig)),
     shell:
@@ -294,9 +292,6 @@ rule direct_maf_sites:
         if [ "{params.mask_indel_adjacent_snps}" = "False" ]; then
           cmd+=(--keep-indel-adjacent-snps)
         fi
-        if [ "{params.treat_n_as_missing}" = "True" ]; then
-          cmd+=(--treat-n-as-missing)
-        fi
         if [ "{params.add_ref}" = "True" ]; then
           cmd+=(--add-ref)
         fi
@@ -309,6 +304,11 @@ rule summary_report:
         all_sites=lambda wc: [str(_direct_all_sites_out(c)) for c in _active_contigs()],
         masks=lambda wc: [str(_direct_mask_out(c)) for c in _active_contigs()],
         summaries=lambda wc: [str(_direct_prefix(c)) + ".site_summary.tsv" for c in _active_contigs()],
+        sample_missing_beds=lambda wc: [
+            str(_direct_sample_missing_mask_out(c, s))
+            for c in _active_contigs()
+            for s in SAMPLES
+        ],
         fai=REF_FAI,
     output:
         report=str(RESULTS_DIR / "summary.html"),
@@ -325,5 +325,6 @@ rule summary_report:
           --all-sites {input.all_sites} \
           --masked-beds {input.masks} \
           --site-summaries {input.summaries} \
+          --sample-missing-beds {input.sample_missing_beds} \
           --options-yaml "{params.options_yaml}"
         """
