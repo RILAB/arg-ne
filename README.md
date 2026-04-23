@@ -42,7 +42,7 @@ Optional controls (defaults shown):
 - `treat_n_as_missing: false` - treat `N` bases as missing rather than as a call
 - `allow_multiallelic_snps: true` - retain sites with more than two alleles
 - `add_ref: false` - append a synthetic `REF` sample (genotype `0`) to both VCFs
-- `summary_window_bp: 100000` - window size in bp for the per-contig plots in `summary.html`
+- `summary_window_bp: 100000` - window size in bp for binned per-contig plots in `summary.html` (this does not affect the per-MAF tables)
 
 SLURM resource overrides (for the `direct_maf_sites` rule):
 
@@ -66,6 +66,8 @@ Contig and sample selection behavior:
 - If both `<sample>.maf` and `<sample>.maf.gz` exist, `<sample>.maf` is used.
 - If `contigs` is omitted, the workflow uses the intersection of contigs present in all selected MAFs.
 - Requested contigs are matched to reference `.fai` contigs with normalization (for example `chr01` can map to `1` when unambiguous).
+- Requested contigs that are unmatched or ambiguous after normalization are skipped.
+- The workflow errors only if no contigs remain after resolution.
 
 Example CLI override:
 
@@ -118,7 +120,8 @@ Outputs are written under `results/` by default (or under `results_dir` if provi
 - `sites/combined.<contig>.vcf`
 - `sites/combined.<contig>.mask.bed`
 - `sites/combined.<contig>.site_summary.tsv`
-- `summary.html`
+- `sites/combined.<contig>.<sample>.missing.bed` (per-sample missing regions used by per-MAF summary stats)
+- `summary.html` (genome-wide overview plus per-MAF tables and per-contig per-MAF breakdowns)
 
 The `site_summary.tsv` contains one metric per row with columns `metric` and `value`:
 
