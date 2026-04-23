@@ -56,20 +56,49 @@ def window_midpoints(length: int, window_bp: int) -> list[int]:
     return mids
 
 
-def read_all_sites_percentages(
+def read_all_sites_stats(
     path: Path,
     lengths: dict[str, int],
     window_bp: int,
-) -> tuple[dict[str, list[int]], dict[str, list[int]]]:
+) -> tuple[
+    dict[str, list[int]],
+    dict[str, list[int]],
+    list[str],
+    dict[str, dict[str, int]],
+    dict[str, dict[str, int]],
+    dict[str, dict[str, int]],
+]:
+    """Single pass over one all_sites VCF.
+
+    Returns:
+      invariant_by_contig: window-binned invariant site counts
+      variant_by_contig:   window-binned variant site counts
+      samples:             sample column order from the VCF header
+      per_sample_variant_by_contig: contig -> sample -> sites where sample carries non-ref
+      per_sample_missing_retained_by_contig: contig -> sample -> retained sites where sample is missing (GT=.)
+      per_sample_called_by_contig: contig -> sample -> retained sites where sample has a call (ref or alt)
+    """
     invariant: dict[str, list[int]] = {
         contig: [0] * window_count(length, window_bp) for contig, length in lengths.items()
     }
     variant: dict[str, list[int]] = {
         contig: [0] * window_count(length, window_bp) for contig, length in lengths.items()
     }
+    samples: list[str] = []
+    per_sample_variant: dict[str, dict[str, int]] = {}
+    per_sample_missing: dict[str, dict[str, int]] = {}
+    per_sample_called: dict[str, dict[str, int]] = {}
+
     with open_text(path, "rt", errors="ignore") as handle:
         for line in handle:
-            if not line.strip() or line.startswith("#"):
+            if not line.strip():
+                continue
+            if line.startswith("#CHROM"):
+                header_parts = line.rstrip("\n").split("\t")
+                if len(header_parts) > 9:
+                    samples = header_parts[9:]
+                continue
+            if line.startswith("#"):
                 continue
             parts = line.rstrip("\n").split("\t")
             if len(parts) < 5:
@@ -79,11 +108,67 @@ def read_all_sites_percentages(
                 continue
             pos = int(parts[1])
             idx = max((pos - 1) // window_bp, 0)
-            if parts[4] == ".":
-                invariant[contig][idx] += 1
-            else:
+            is_variant = parts[4] != "."
+            if is_variant:
                 variant[contig][idx] += 1
-    return invariant, variant
+            else:
+                invariant[contig][idx] += 1
+
+            if samples and len(parts) >= 9 + len(samples):
+                sv = per_sample_variant.setdefault(contig, {s: 0 for s in samples})
+                sm = per_sample_missing.setdefault(contig, {s: 0 for s in samples})
+                sc = per_sample_called.setdefault(contig, {s: 0 for s in samples})
+                for s_idx, sample in enumerate(samples):
+                    gt = parts[9 + s_idx]
+                    if gt == ".":
+                        sm[sample] += 1
+                    else:
+                        sc[sample] += 1
+                        if is_variant and gt != "0":
+                            sv[sample] += 1
+
+    return invariant, variant, samples, per_sample_variant, per_sample_missing, per_sample_called
+
+
+def read_sample_missing_bp(
+    bed_paths: list[Path],
+    samples: list[str],
+    lengths: dict[str, int],
+) -> dict[str, dict[str, int]]:
+    """Sum BED interval lengths per sample per contig.
+
+    Sample name is inferred from each BED path's filename suffix
+    ".{sample}.missing.bed". Paths that don't match any known sample are ignored.
+    """
+    # Sort samples by length desc so longer names match first (avoids a sample
+    # name being a suffix of another's).
+    ordered = sorted(samples, key=len, reverse=True)
+    data: dict[str, dict[str, int]] = {s: {} for s in samples}
+    for bed_path in bed_paths:
+        name = bed_path.name
+        matched = None
+        for s in ordered:
+            if name.endswith(f".{s}.missing.bed"):
+                matched = s
+                break
+        if matched is None:
+            continue
+        with bed_path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip() or line.startswith("#"):
+                    continue
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) < 3:
+                    continue
+                contig = parts[0]
+                if contig not in lengths:
+                    continue
+                start = int(parts[1])
+                end = int(parts[2])
+                span = max(end - start, 0)
+                if span:
+                    data[matched][contig] = data[matched].get(contig, 0) + span
+    return data
 
 
 def read_mask_percentages(
@@ -394,21 +479,34 @@ def build_report(
     window_bp: int,
     report_out: Path,
     options_yaml: Path,
+    sample_missing_beds: list[Path] | None = None,
 ) -> None:
     lengths = read_fai_lengths(fai)
     invariant_counts: dict[str, list[int]] = {}
     variant_counts: dict[str, list[int]] = {}
     masked_counts: dict[str, list[int]] = {}
     summaries: dict[str, dict[str, str]] = {}
+    sample_order: list[str] = []
+    sample_variant_by_contig: dict[str, dict[str, int]] = {}
+    sample_missing_retained_by_contig: dict[str, dict[str, int]] = {}
+    sample_called_by_contig: dict[str, dict[str, int]] = {}
 
     for path in all_sites_paths:
-        inv, var = read_all_sites_percentages(path, lengths, window_bp)
+        inv, var, samples, sv, sm, sc = read_all_sites_stats(path, lengths, window_bp)
+        if samples and not sample_order:
+            sample_order = list(samples)
         for contig, values in inv.items():
             if contig not in invariant_counts:
                 invariant_counts[contig] = [0] * len(values)
                 variant_counts[contig] = [0] * len(values)
             invariant_counts[contig] = [a + b for a, b in zip(invariant_counts[contig], values)]
             variant_counts[contig] = [a + b for a, b in zip(variant_counts[contig], var[contig])]
+        for contig, d in sv.items():
+            sample_variant_by_contig.setdefault(contig, {}).update(d)
+        for contig, d in sm.items():
+            sample_missing_retained_by_contig.setdefault(contig, {}).update(d)
+        for contig, d in sc.items():
+            sample_called_by_contig.setdefault(contig, {}).update(d)
 
     for path in mask_paths:
         masked = read_mask_percentages(path, lengths, window_bp)
@@ -436,6 +534,18 @@ def build_report(
     total_all_sites = sum(int(summaries[c].get("all_sites", 0)) for c in active_contigs if c in summaries)
     total_variants = sum(int(summaries[c].get("variants", 0)) for c in active_contigs if c in summaries)
     total_masked = sum(int(summaries[c].get("masked_total", 0)) for c in active_contigs if c in summaries)
+
+    # per-sample (per-MAF) aggregation. BED-derived missing bp is optional; when
+    # provided it restricts the reported sample set to those with a matching
+    # ".{sample}.missing.bed" file (so synthesized columns like a REF track from
+    # add_ref are excluded automatically).
+    sample_bed_missing = read_sample_missing_bp(
+        list(sample_missing_beds or []), sample_order, lengths
+    ) if sample_missing_beds else {}
+    if sample_missing_beds:
+        per_maf_samples = [s for s in sample_order if s in sample_bed_missing]
+    else:
+        per_maf_samples = list(sample_order)
 
     CSS = """\
 body{font-family:sans-serif;margin:24px;color:#111;max-width:1000px}
@@ -527,6 +637,79 @@ tr.bad  td{background:#ffd7d7}
             )
         w("</table>\n")
 
+        # ── per-MAF (per-sample) summary ─────────────────────────────────────
+        if per_maf_samples:
+            w("<h2>Per-MAF summary</h2>\n")
+            w(
+                "<p>One row per input MAF / sample. Missing bp is computed across "
+                "the full contig (from the per-sample <code>.missing.bed</code> masks). "
+                "Variant and called counts are across retained sites in the "
+                "<code>all_sites</code> VCFs.</p>\n"
+            )
+            w("<table>\n")
+            w(
+                "<tr><th>Sample</th>"
+                "<th>Missing bp</th><th>% genome missing</th>"
+                "<th>Retained sites called</th>"
+                "<th>Variants carried</th><th>% variant of called</th>"
+                "</tr>\n"
+            )
+            totals_missing = 0
+            totals_called = 0
+            totals_variant = 0
+            for sample in per_maf_samples:
+                miss_bp = (
+                    sum(sample_bed_missing.get(sample, {}).get(c, 0) for c in active_contigs)
+                    if sample_bed_missing else 0
+                )
+                called = sum(
+                    sample_called_by_contig.get(c, {}).get(sample, 0) for c in active_contigs
+                )
+                carried = sum(
+                    sample_variant_by_contig.get(c, {}).get(sample, 0) for c in active_contigs
+                )
+                miss_pct = miss_bp / total_length * 100 if total_length else 0.0
+                var_of_called = carried / called * 100 if called else 0.0
+                row_cls = (
+                    ' class="bad"' if miss_pct > 50
+                    else (' class="warn"' if miss_pct > 25 else "")
+                )
+                miss_cell = f"{miss_bp:,}" if sample_bed_missing else "&mdash;"
+                miss_pct_cell = f"{miss_pct:.1f}%" if sample_bed_missing else "&mdash;"
+                w(
+                    f"<tr{row_cls}>"
+                    f"<td>{html.escape(sample)}</td>"
+                    f"<td>{miss_cell}</td>"
+                    f"<td>{miss_pct_cell}</td>"
+                    f"<td>{called:,}</td>"
+                    f"<td>{carried:,}</td>"
+                    f"<td>{var_of_called:.1f}%</td>"
+                    f"</tr>\n"
+                )
+                totals_missing += miss_bp
+                totals_called += called
+                totals_variant += carried
+            if len(per_maf_samples) > 1:
+                n = len(per_maf_samples)
+                mean_missing = totals_missing / n
+                mean_called = totals_called / n
+                mean_variant = totals_variant / n
+                mean_miss_pct = mean_missing / total_length * 100 if total_length else 0.0
+                mean_var_pct = mean_variant / mean_called * 100 if mean_called else 0.0
+                mean_miss_cell = f"{mean_missing:,.0f}" if sample_bed_missing else "&mdash;"
+                mean_miss_pct_cell = f"{mean_miss_pct:.1f}%" if sample_bed_missing else "&mdash;"
+                w(
+                    f'<tr style="font-weight:bold;border-top:2px solid #999">'
+                    f"<td>Mean</td>"
+                    f"<td>{mean_miss_cell}</td>"
+                    f"<td>{mean_miss_pct_cell}</td>"
+                    f"<td>{mean_called:,.0f}</td>"
+                    f"<td>{mean_variant:,.0f}</td>"
+                    f"<td>{mean_var_pct:.1f}%</td>"
+                    f"</tr>\n"
+                )
+            w("</table>\n")
+
         # ── table of contents ─────────────────────────────────────────────────
         w("<h2>Contigs</h2>\n<div class=\"toc\">\n")
         for c in active_contigs:
@@ -613,6 +796,45 @@ tr.bad  td{background:#ffd7d7}
                     ("Missing (%)", "#E45756", miss_pct),
                 ],
             ))
+
+            # per-MAF breakdown for this contig
+            if per_maf_samples:
+                contig_miss_map = {
+                    s: sample_bed_missing.get(s, {}).get(contig, 0)
+                    for s in per_maf_samples
+                } if sample_bed_missing else {}
+                contig_called_map = sample_called_by_contig.get(contig, {})
+                contig_var_map = sample_variant_by_contig.get(contig, {})
+                w("<h4>Per-MAF on this contig</h4>\n")
+                w("<table>\n")
+                w(
+                    "<tr><th>Sample</th>"
+                    "<th>Missing bp</th><th>% contig missing</th>"
+                    "<th>Retained called</th><th>Variants carried</th>"
+                    "</tr>\n"
+                )
+                for sample in per_maf_samples:
+                    miss_bp = contig_miss_map.get(sample, 0)
+                    called = contig_called_map.get(sample, 0)
+                    carried = contig_var_map.get(sample, 0)
+                    miss_pct = miss_bp / length * 100 if length else 0.0
+                    row_cls = (
+                        ' class="bad"' if miss_pct > 50
+                        else (' class="warn"' if miss_pct > 25 else "")
+                    )
+                    miss_cell = f"{miss_bp:,}" if sample_bed_missing else "&mdash;"
+                    miss_pct_cell = f"{miss_pct:.1f}%" if sample_bed_missing else "&mdash;"
+                    w(
+                        f"<tr{row_cls}>"
+                        f"<td>{html.escape(sample)}</td>"
+                        f"<td>{miss_cell}</td>"
+                        f"<td>{miss_pct_cell}</td>"
+                        f"<td>{called:,}</td>"
+                        f"<td>{carried:,}</td>"
+                        f"</tr>\n"
+                    )
+                w("</table>\n")
+
             w("\n</details>\n")
 
         # ── run configuration ─────────────────────────────────────────────────
@@ -632,6 +854,13 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--masked-beds", nargs="+", required=True)
     ap.add_argument("--site-summaries", nargs="+", required=True)
     ap.add_argument("--options-yaml", required=True)
+    ap.add_argument(
+        "--sample-missing-beds",
+        nargs="*",
+        default=[],
+        help="Per-sample missing BED files (combined.{contig}.{sample}.missing.bed). "
+        "Used to populate the per-MAF missingness table.",
+    )
     return ap.parse_args()
 
 
@@ -645,6 +874,7 @@ def main() -> None:
         args.window_bp,
         Path(args.report_out),
         Path(args.options_yaml),
+        [Path(p) for p in args.sample_missing_beds],
     )
 
 

@@ -96,3 +96,71 @@ def test_summary_report_html_contains_separate_plots_per_contig(tmp_path: Path):
     assert "maf_dir: /tmp/maf" in html
     # Scaffolds with no data should be omitted.
     assert "scaffold99" not in html
+
+
+def test_summary_report_per_maf_section(tmp_path: Path):
+    fai = tmp_path / "ref.fa.fai"
+    fai.write_text("chr1\t10\t0\t0\t0\n", encoding="utf-8")
+
+    all_sites = tmp_path / "combined.chr1.all_sites.vcf"
+    all_sites.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2\n"
+        "chr1\t1\t.\tA\t.\t.\tPASS\tNS=2;MS=0;SC=invariant\tGT\t0\t0\n"
+        "chr1\t2\t.\tC\tT\t.\tPASS\tNS=2;MS=0;SC=variant\tGT\t1\t0\n"
+        "chr1\t3\t.\tG\tA\t.\tPASS\tNS=2;MS=0;SC=variant\tGT\t1\t1\n"
+        "chr1\t5\t.\tG\t.\t.\tPASS\tNS=1;MS=1;SC=invariant\tGT\t0\t.\n",
+        encoding="utf-8",
+    )
+
+    masked = tmp_path / "combined.chr1.mask.bed"
+    masked.write_text("chr1\t6\t10\n", encoding="utf-8")
+
+    summary1 = tmp_path / "combined.chr1.site_summary.tsv"
+    summary1.write_text(
+        "metric\tvalue\n"
+        "contig\tchr1\n"
+        "contig_length\t10\n"
+        "samples\t2\n"
+        "allowed_missing\t1\n"
+        "all_sites\t4\n"
+        "variants\t2\n"
+        "invariant\t2\n"
+        "masked_total\t4\n",
+        encoding="utf-8",
+    )
+
+    # s1 missing 2 bp on chr1, s2 missing 5 bp on chr1
+    bed_s1 = tmp_path / "combined.chr1.s1.missing.bed"
+    bed_s1.write_text("chr1\t8\t10\n", encoding="utf-8")
+    bed_s2 = tmp_path / "combined.chr1.s2.missing.bed"
+    bed_s2.write_text("chr1\t0\t5\n", encoding="utf-8")
+
+    options_yaml = tmp_path / "options.yaml"
+    options_yaml.write_text("maf_dir: /tmp/maf\nreference_fasta: /tmp/ref.fa\n", encoding="utf-8")
+
+    report = tmp_path / "summary.html"
+    subprocess.run(
+        [
+            sys.executable,
+            str(Path("scripts") / "summary_report.py"),
+            "--fai", str(fai),
+            "--window-bp", "4",
+            "--report-out", str(report),
+            "--all-sites", str(all_sites),
+            "--masked-beds", str(masked),
+            "--site-summaries", str(summary1),
+            "--sample-missing-beds", str(bed_s1), str(bed_s2),
+            "--options-yaml", str(options_yaml),
+        ],
+        cwd=Path.cwd(),
+        check=True,
+    )
+
+    html = report.read_text(encoding="utf-8")
+    assert "Per-MAF summary" in html
+    assert "Per-MAF on this contig" in html
+    # s1: 2 missing bp, 2 variants carried (positions 2 and 3), 4 called sites
+    # s2: 5 missing bp, 1 variant carried (position 3), 3 called sites (pos 5 is missing in retained)
+    assert "<td>s1</td><td>2</td><td>20.0%</td><td>4</td><td>2</td>" in html
+    assert "<td>s2</td><td>5</td><td>50.0%</td><td>3</td><td>1</td>" in html
