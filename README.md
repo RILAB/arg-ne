@@ -6,6 +6,7 @@ If you use this please cite:
 
 Ross-Ibarra, J. 2026. ARGprep: A pipeline to prepare pairwise whole-genome alignments for ancestral recombination graph estimation. [doi: 10.5281/zenodo.19655050](https://doi.org/10.5281/zenodo.19655050)
 
+If your use case is pairwise variant discovery (SNPs, large indels, inversions) rather than ARG-ready all-sites output, [wgatools](https://github.com/wjwei-handsome/wgatools) is a potential alternative. See [WGATOOLS_COMPARISON.md](WGATOOLS_COMPARISON.md) for a detailed comparison of the two approaches.
 
 ## Requirements
 
@@ -37,8 +38,8 @@ Optional controls (defaults shown):
 
 - `max_missing_count` - no default; see missingness thresholds below
 - `max_missing_fraction` - no default; see missingness thresholds below
-- `mask_indels: true` - mask reference positions overlapped by deletions
-- `mask_indel_adjacent_snps: true` - mask SNPs immediately flanking an indel (only applies when `mask_indels: true`)
+- `mask_indels: true` - mask reference positions overlapped by a deletion in any sample (see [NOTES.md](NOTES.md) for exact semantics)
+- `mask_indel_adjacent_snps: true` - also mask SNPs immediately flanking an indel (no effect when `mask_indels: false`)
 - `allow_multiallelic_snps: true` - retain sites with more than two alleles
 - `add_ref: false` - append a synthetic `REF` sample (genotype `0`) to both VCFs
 - `summary_window_bp: 100000` - window size in bp for binned per-contig plots in `summary.html` (this does not affect the per-MAF tables)
@@ -81,19 +82,13 @@ Missingness thresholds:
 - If both are set, the workflow uses the stricter threshold.
 - The fraction is converted to a count with downward truncation. For example, with 10 samples, `0.15` allows `1` missing sample.
 - **If neither is set, the default is 0 - any site where even one sample is unaligned or missing is masked.** Set one of these options explicitly if you want to retain sites with partial coverage.
-- A sample counts as missing at a site if it has no alignment block covering that position, carries a gap/indel character (`-`), carries an `N` base, or has any other non-ACGT character. In particular, **indel gap characters always count as missing** regardless of the `mask_indels` setting — `mask_indels` controls whether indel-overlapped sites are masked outright, but even when `mask_indels: false`, a `-` at a site still contributes to the missing-sample count.
+- A sample counts as missing at a site if it has no alignment block covering that position, carries a gap (`-`), an `N`, or any other non-ACGT character. Gaps always contribute to the missing-sample count regardless of the `mask_indels` setting.
 
-Indel masking behavior:
-
-- `mask_indels: true` masks reference positions directly overlapped by deletions.
-- `mask_indel_adjacent_snps: true` additionally masks SNPs immediately adjacent to an insertion or deletion.
-- `mask_indels: false` disables indel-based masking entirely, so indel-overlapped and indel-adjacent sites are judged only by the remaining filters such as missingness.
-- `mask_indel_adjacent_snps` only has an effect when `mask_indels: true`.
+Indel masking is documented in detail in [NOTES.md](NOTES.md), including how `mask_indels` interacts with the missingness filter.
 
 Reference-sample behavior:
 
-- `add_ref: true` appends a synthetic `REF` sample to both final VCFs.
-- The added sample is emitted as genotype `0` at every retained site in `all_sites` and `variants`.
+- `add_ref: true` appends a synthetic `REF` sample (genotype `0` at every retained site) to both final VCFs.
 
 ## Run
 
@@ -111,16 +106,28 @@ snakemake --profile profiles/slurm --configfile options.yaml
 
 When using the SLURM profile, set `slurm_account` and `slurm_partition` in your config file. Slurm defaults for other resources are defined in `profiles/slurm/config.yaml`. Parsing the MAFs is the most computationally expensive step in the pipeline, and direct-maf rule resources can be overridden in `options.yaml` (`maf_threads`, `maf_mem_mb`, `maf_time`).
 
+### Try it on the bundled example
+
+`example_data/` ships with a small simulated dataset (`example.maf/`, `example.reference.fa`) and a matching `options.yaml`. From the repo root:
+
+```bash
+snakemake -j 4 --configfile example_data/options.yaml
+```
+
+Outputs land in `example_results/`. To regenerate the example data from scratch, see the [Simulation Helper](#simulation-helper) section.
+
 ## Outputs
 
 Outputs are written under `results/` by default (or under `results_dir` if provided):
 
-- `sites/combined.<contig>.all_sites.vcf`
-- `sites/combined.<contig>.vcf`
-- `sites/combined.<contig>.mask.bed`
-- `sites/combined.<contig>.site_summary.tsv`
-- `sites/combined.<contig>.<sample>.missing.bed` (per-sample missing regions used by per-MAF summary stats)
-- `summary.html` (genome-wide overview plus per-MAF tables and per-contig per-MAF breakdowns)
+- `sites/combined.<contig>.all_sites.vcf` — every retained site (invariant + variant) that passed all filters; `INFO=SC=invariant|variant` distinguishes the two
+- `sites/combined.<contig>.vcf` — variant-only subset of `all_sites.vcf`
+- `sites/combined.<contig>.mask.bed` — merged BED intervals for masked positions
+- `sites/combined.<contig>.site_summary.tsv` — per-contig counts (see table below)
+- `sites/combined.<contig>.<sample>.missing.bed` — per-sample missing regions used by per-MAF summary stats
+- `summary.html` — genome-wide overview plus per-MAF tables and per-contig per-MAF breakdowns
+
+Both VCFs share the same header and use a single haploid `GT` per sample (`0` for the REF allele, `1`/`2`/... for ALTs in `ALT` order, `.` for missing). `INFO` carries `NS` (non-missing samples), `MS` (missing samples), and `SC` (`invariant` or `variant`). All retained sites are emitted with `FILTER=PASS`; filtered-out positions appear in the BED mask, not the VCFs.
 
 The `site_summary.tsv` contains one metric per row with columns `metric` and `value`:
 

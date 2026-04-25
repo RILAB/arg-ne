@@ -55,6 +55,10 @@ DEFAULT_MEM_MB = 48000
 DEFAULT_THREADS = 2
 DEFAULT_TIME = "24:00:00"
 SUMMARY_WINDOW_BP = int(config.get("summary_window_bp", 100000))
+if SUMMARY_WINDOW_BP <= 0:
+    raise ValueError(
+        f"summary_window_bp must be a positive integer; got {SUMMARY_WINDOW_BP}"
+    )
 
 DIRECT_REF_FASTA = RESULTS_DIR / "refs" / "reference_sites.fa"
 REF_FAI = str(DIRECT_REF_FASTA) + ".fai"
@@ -131,11 +135,20 @@ SAMPLES = _discover_samples()
 if not SAMPLES:
     raise ValueError(f"No MAF files found in {MAF_DIR}")
 
-MAF_CONTIGS_BY_SAMPLE = _read_maf_contig_sets(SAMPLES)
-if MAF_CONTIGS_BY_SAMPLE:
-    MAF_CONTIG_INTERSECTION = sorted(set.intersection(*MAF_CONTIGS_BY_SAMPLE.values()))
-else:
-    MAF_CONTIG_INTERSECTION = []
+_MAF_CONTIG_INTERSECTION_CACHE: list[str] | None = None
+
+
+def _maf_contig_intersection() -> list[str]:
+    global _MAF_CONTIG_INTERSECTION_CACHE
+    if _MAF_CONTIG_INTERSECTION_CACHE is None:
+        contigs_by_sample = _read_maf_contig_sets(SAMPLES)
+        if contigs_by_sample:
+            _MAF_CONTIG_INTERSECTION_CACHE = sorted(
+                set.intersection(*contigs_by_sample.values())
+            )
+        else:
+            _MAF_CONTIG_INTERSECTION_CACHE = []
+    return _MAF_CONTIG_INTERSECTION_CACHE
 
 
 def _active_contig_resolution() -> tuple[list[str], list[str], list[str], list[tuple[str, str]]]:
@@ -152,7 +165,7 @@ def _active_contig_resolution() -> tuple[list[str], list[str], list[str], list[t
             )
         return kept, dropped, requested, remapped
 
-    requested = list(MAF_CONTIG_INTERSECTION)
+    requested = list(_maf_contig_intersection())
     if not requested:
         raise ValueError(
             "No contigs are shared across all MAF files. Set explicit 'contigs' in options.yaml to override."
@@ -165,8 +178,24 @@ def _active_contig_resolution() -> tuple[list[str], list[str], list[str], list[t
     return kept, dropped, requested, remapped
 
 
+_CONTIG_RESOLUTION_LOGGED = False
+
+
 def _active_contigs() -> list[str]:
-    return _active_contig_resolution()[0]
+    global _CONTIG_RESOLUTION_LOGGED
+    kept, dropped, _requested, remapped = _active_contig_resolution()
+    if not _CONTIG_RESOLUTION_LOGGED:
+        _CONTIG_RESOLUTION_LOGGED = True
+        if remapped:
+            pairs = ", ".join(f"{r}->{m}" for r, m in remapped)
+            print(f"[argprep] Remapped contigs to reference names: {pairs}", file=sys.stderr)
+        if dropped:
+            print(
+                "[argprep] Skipped contigs (no unambiguous match in reference .fai): "
+                + ", ".join(dropped),
+                file=sys.stderr,
+            )
+    return kept
 
 
 def _maf_input(sample):

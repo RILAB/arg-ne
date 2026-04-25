@@ -1,5 +1,5 @@
 # Paths
-maf_dir: example_data/example_maf/
+maf_dir: example_data/example.maf/
 reference_fasta: example_data/example.reference.fa
 
 # Output location
