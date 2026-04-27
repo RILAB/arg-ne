@@ -124,7 +124,7 @@ Outputs are written under `results/` by default (or under `results_dir` if provi
 - `sites/combined.<contig>.vcf` — variant-only subset of `all_sites.vcf`
 - `sites/combined.<contig>.mask.bed` — merged BED intervals for masked positions
 - `sites/combined.<contig>.site_summary.tsv` — per-contig counts (see table below)
-- `sites/combined.<contig>.<sample>.missing.bed` — per-sample missing regions used by per-MAF summary stats
+- `sites/combined.<contig>.<sample>.missing.bed` — per-sample missing regions used by per-MAF summary stats; 4-column BED (`chrom`, `start`, `end`, `sample`)
 - `summary.html` — genome-wide overview plus per-MAF tables and per-contig per-MAF breakdowns
 
 Both VCFs share the same header and use a single haploid `GT` per sample (`0` for the REF allele, `1`/`2`/... for ALTs in `ALT` order, `.` for missing). `INFO` carries `NS` (non-missing samples), `MS` (missing samples), and `SC` (`invariant` or `variant`). All retained sites are emitted with `FILTER=PASS`; filtered-out positions appear in the BED mask, not the VCFs.

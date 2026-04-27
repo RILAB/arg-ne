@@ -57,14 +57,18 @@ def _read_vcf_header_line(path: Path) -> str:
     raise AssertionError(f"No VCF header line found in {path}")
 
 
-def _read_bed(path: Path) -> list[tuple[str, int, int]]:
+def _read_bed(path: Path) -> list[tuple]:
     rows = []
     with path.open("r", encoding="utf-8") as handle:
         for line in handle:
             if not line.strip():
                 continue
-            chrom, start, end = line.rstrip("\n").split("\t")
-            rows.append((chrom, int(start), int(end)))
+            fields = line.rstrip("\n").split("\t")
+            chrom, start, end = fields[0], int(fields[1]), int(fields[2])
+            if len(fields) >= 4:
+                rows.append((chrom, start, end, fields[3]))
+            else:
+                rows.append((chrom, start, end))
     return rows
 
 
@@ -145,7 +149,7 @@ def test_maf_to_sites_emits_per_sample_missing_masks(tmp_path: Path):
     s2_mask = _read_bed(Path(str(out_prefix) + ".s2.missing.bed"))
 
     assert s1_mask == []
-    assert s2_mask == [("chr1", 2, 3), ("chr1", 7, 8)]
+    assert s2_mask == [("chr1", 2, 3, "s2"), ("chr1", 7, 8, "s2")]
 
 
 def test_maf_to_sites_per_sample_missing_mask_includes_unaligned_positions(tmp_path: Path):
@@ -177,7 +181,7 @@ def test_maf_to_sites_per_sample_missing_mask_includes_unaligned_positions(tmp_p
     s1_mask = _read_bed(Path(str(out_prefix) + ".s1.missing.bed"))
     s2_mask = _read_bed(Path(str(out_prefix) + ".s2.missing.bed"))
 
-    assert s1_mask == [("chr1", 1, 4)]  # positions 1, 2, 3 unaligned → merged interval
+    assert s1_mask == [("chr1", 1, 4, "s1")]  # positions 1, 2, 3 unaligned → merged interval
     assert s2_mask == []
 
 

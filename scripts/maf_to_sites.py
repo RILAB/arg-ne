@@ -494,7 +494,7 @@ def main() -> None:
     for sample, calls in zip(samples, sample_arrays):
         missing_pos = [idx for idx, code in enumerate(calls) if code in MISSING_CODES]
         sample_bed_lines = [
-            f"{chrom}\t{start}\t{end}"
+            f"{chrom}\t{start}\t{end}\t{sample}"
             for chrom, start, end in intervals_from_positions(contig, missing_pos)
         ]
         write_lines(Path(str(out_prefix) + f".{sample}.missing.bed"), sample_bed_lines)
