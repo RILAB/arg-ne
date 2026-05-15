@@ -67,7 +67,6 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--max-missing-fraction", type=float, default=None)
     ap.add_argument("--allow-multiallelic-snps", dest="allow_multiallelic_snps", action="store_true", default=True)
     ap.add_argument("--mask-multiallelic-snps", dest="allow_multiallelic_snps", action="store_false")
-    ap.add_argument("--mask-indels", action="store_true", default=False)
     ap.add_argument(
         "--mask-indel-adjacent-snps",
         dest="mask_indel_adjacent_snps",
@@ -209,11 +208,8 @@ def load_sample_calls(
     maf_path: Path,
     contig: str,
     contig_len: int,
-    *,
-    mask_indels: bool,
-) -> tuple[bytearray, bytearray, bytearray]:
+) -> tuple[bytearray, bytearray]:
     calls = bytearray(contig_len)
-    indel_flags = bytearray(contig_len)
     adjacent_indel_flags = bytearray(contig_len)
 
     for block in iter_maf_blocks(maf_path):
@@ -226,7 +222,7 @@ def load_sample_calls(
         mark_next_ref_adjacent = False
         for ref_char, sample_char in zip(ref_record.text.upper(), sample_record.text.upper()):
             if ref_char == "-":
-                if mask_indels and sample_char != "-" and prev_ref_idx is not None:
+                if sample_char != "-" and prev_ref_idx is not None:
                     adjacent_indel_flags[prev_ref_idx] = 1
                     mark_next_ref_adjacent = True
                 continue
@@ -237,18 +233,16 @@ def load_sample_calls(
             ref_pos += 1
             prev_ref_idx = idx
 
-            if mask_indels and mark_next_ref_adjacent:
+            if mark_next_ref_adjacent:
                 adjacent_indel_flags[idx] = 1
                 mark_next_ref_adjacent = False
 
             if sample_char == "-":
                 _assign_code(calls, idx, NUC_TO_CODE["-"])
-                if mask_indels:
-                    indel_flags[idx] = 1
-                    adjacent_indel_flags[idx] = 1
-                    if idx > 0:
-                        adjacent_indel_flags[idx - 1] = 1
-                    mark_next_ref_adjacent = True
+                adjacent_indel_flags[idx] = 1
+                if idx > 0:
+                    adjacent_indel_flags[idx - 1] = 1
+                mark_next_ref_adjacent = True
                 continue
 
             if sample_char in VALID_BASES:
@@ -257,7 +251,7 @@ def load_sample_calls(
 
             _assign_code(calls, idx, NUC_TO_CODE["?"])
 
-    return calls, indel_flags, adjacent_indel_flags
+    return calls, adjacent_indel_flags
 
 
 def missing_threshold(sample_count: int, max_missing_count: int | None, max_missing_fraction: float | None) -> int:
@@ -367,19 +361,16 @@ def main() -> None:
     contig_seq = read_contig_sequence(reference_fasta, contig)
     contig_len = len(contig_seq)
     sample_arrays: list[bytearray] = []
-    indel_flags = bytearray(contig_len)
     adjacent_indel_flags = bytearray(contig_len)
 
     for sample in samples:
-        calls, sample_indels, sample_adjacent_indels = load_sample_calls(
+        calls, sample_adjacent_indels = load_sample_calls(
             maf_path_for_sample(maf_dir, sample),
             contig,
             contig_len,
-            mask_indels=args.mask_indels,
         )
         sample_arrays.append(calls)
-        for i in range(len(sample_indels)):
-            indel_flags[i] |= sample_indels[i]
+        for i in range(len(sample_adjacent_indels)):
             adjacent_indel_flags[i] |= sample_adjacent_indels[i]
 
     allowed_missing = missing_threshold(
@@ -429,9 +420,7 @@ def main() -> None:
 
             if not alleles:
                 masked_positions.append(idx)
-                if indel_flags[idx]:
-                    counts["masked_indel"] += 1
-                elif has_unaligned_sample:
+                if has_unaligned_sample:
                     counts["masked_no_alignment"] += 1
                 else:
                     counts["masked_missingness"] += 1
@@ -439,11 +428,9 @@ def main() -> None:
 
             alt_order = sorted(a for a in allele_set if a != ref_base)
 
-            if indel_flags[idx] or (
-                args.mask_indel_adjacent_snps and alt_order and adjacent_indel_flags[idx]
-            ):
+            if args.mask_indel_adjacent_snps and alt_order and adjacent_indel_flags[idx]:
                 masked_positions.append(idx)
-                counts["masked_indel"] += 1
+                counts["masked_indel_adjacent"] += 1
                 continue
 
             if missing > allowed_missing:
@@ -518,7 +505,7 @@ def main() -> None:
         "variants",
         "invariant",
         "masked_missingness",
-        "masked_indel",
+        "masked_indel_adjacent",
         "masked_multiallelic",
         "masked_no_alignment",
         "masked_ref_non_acgt",

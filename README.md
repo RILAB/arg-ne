@@ -40,8 +40,7 @@ Optional controls (defaults shown):
 
 - `max_missing_count` - no default; see missingness thresholds below
 - `max_missing_fraction` - no default; see missingness thresholds below
-- `mask_indels: true` - mask reference positions overlapped by a deletion in any sample (see [NOTES.md](NOTES.md) for exact semantics)
-- `mask_indel_adjacent_snps: true` - also mask SNPs immediately flanking an indel (no effect when `mask_indels: false`)
+- `mask_indel_adjacent_snps: true` - mask SNPs immediately flanking an indel (see [NOTES.md](NOTES.md) for exact semantics)
 - `allow_multiallelic_snps: true` - retain sites with more than two alleles
 - `add_ref: false` - append a synthetic `REF` sample (genotype `0`) to both VCFs
 - `summary_window_bp: 100000` - window size in bp for binned per-contig plots in `summary.html` (this does not affect the per-MAF tables)
@@ -84,9 +83,9 @@ Missingness thresholds:
 - If both are set, the workflow uses the stricter threshold.
 - The fraction is converted to a count with downward truncation. For example, with 10 samples, `0.15` allows `1` missing sample.
 - **If neither is set, the default is 0 - any site where even one sample is unaligned or missing is masked.** Set one of these options explicitly if you want to retain sites with partial coverage.
-- A sample counts as missing at a site if it has no alignment block covering that position, carries a gap (`-`), an `N`, or any other non-ACGT character. Gaps always contribute to the missing-sample count regardless of the `mask_indels` setting.
+- A sample counts as missing at a site if it has no alignment block covering that position, carries a gap (`-`), an `N`, or any other non-ACGT character. To drop every site overlapped by a deletion in any sample, set `max_missing_count: 0` (the default) — gaps always contribute to the missing-sample count.
 
-Indel masking is documented in detail in [NOTES.md](NOTES.md), including how `mask_indels` interacts with the missingness filter.
+Adjacent-SNP masking is documented in detail in [NOTES.md](NOTES.md).
 
 Reference-sample behavior:
 
@@ -145,7 +144,7 @@ The `site_summary.tsv` contains one metric per row with columns `metric` and `va
 | `masked_total` | total masked positions |
 | `masked_intervals` | number of merged BED intervals in the mask |
 | `masked_missingness` | positions masked due to too many missing samples |
-| `masked_indel` | positions masked due to indel overlap or adjacency |
+| `masked_indel_adjacent` | SNPs masked because they immediately flank an indel |
 | `masked_multiallelic` | positions masked due to more than two alleles |
 | `masked_no_alignment` | positions masked because at least one sample had no alignment |
 | `masked_ref_non_acgt` | reference positions with non-ACGT bases (always masked) |

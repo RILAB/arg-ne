@@ -1,5 +1,7 @@
 ## Changes since v1.0
 
+- Removed the `mask_indels` config option. Deletion gaps (`-`) already count toward per-sample missingness, so setting `max_missing_count: 0` reproduces the old `mask_indels: true` behavior. `mask_indel_adjacent_snps` is now a standalone option.
+- Renamed the `masked_indel` site-summary counter to `masked_indel_adjacent` (it now reflects only the adjacent-SNP masking it still controls).
 - Added optional `add_ref` output behavior so final `all_sites` and `variants` VCFs can include a synthetic `REF` sample with genotype `0` at every retained site.
 - Fixed .gitignore not updating example_data
 
@@ -13,7 +15,6 @@
 - Site classification is now done in reference coordinates from the MAF alignment itself rather than from merged gVCF records.
 - Missingness filtering is configurable with either `max_missing_count` or `max_missing_fraction`; if both are set, the stricter threshold is used.
 - Indel handling is configurable:
-  - `mask_indels` masks deleted reference positions
   - `mask_indel_adjacent_snps` optionally masks SNPs adjacent to insertions or deletions
 - Multiallelic SNPs are retained by default and can be disabled with `allow_multiallelic_snps`.
 - Coverage validation was simplified: `maf_to_sites.py` now performs the retained-sites-plus-mask contig-span check internally without a separate `coverage.txt` artifact.

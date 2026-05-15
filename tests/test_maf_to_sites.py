@@ -100,7 +100,6 @@ def test_maf_to_sites_emits_expected_records_and_mask(tmp_path: Path):
             "s2",
             "--max-missing-count",
             "0",
-            "--mask-indels",
         ],
         cwd=Path.cwd(),
     )
@@ -310,7 +309,6 @@ def test_maf_to_sites_masks_snp_adjacent_to_insertion(tmp_path: Path):
             "s2",
             "--max-missing-count",
             "0",
-            "--mask-indels",
         ],
         cwd=Path.cwd(),
     )
@@ -354,7 +352,6 @@ def test_maf_to_sites_can_keep_snp_adjacent_to_insertion(tmp_path: Path):
             "s2",
             "--max-missing-count",
             "0",
-            "--mask-indels",
             "--keep-indel-adjacent-snps",
         ],
         cwd=Path.cwd(),
@@ -398,7 +395,6 @@ def test_maf_to_sites_can_keep_snp_adjacent_to_indel(tmp_path: Path):
             "s2",
             "--max-missing-count",
             "0",
-            "--mask-indels",
             "--keep-indel-adjacent-snps",
         ],
         cwd=Path.cwd(),
@@ -413,7 +409,7 @@ def test_maf_to_sites_can_keep_snp_adjacent_to_indel(tmp_path: Path):
     assert _read_bed(masked) == [("chr1", 2, 3), ("chr1", 7, 8)]
 
 
-def test_maf_to_sites_counts_all_deleted_sites_as_masked_indel(tmp_path: Path):
+def test_maf_to_sites_counts_all_deleted_sites_as_missingness(tmp_path: Path):
     ref = tmp_path / "ref.fa"
     ref.write_text(">chr1\nAAAA\n", encoding="utf-8")
     (tmp_path / "ref.fa.fai").write_text("chr1\t4\t6\t4\t5\n", encoding="utf-8")
@@ -441,14 +437,14 @@ def test_maf_to_sites_counts_all_deleted_sites_as_masked_indel(tmp_path: Path):
             "s2",
             "--max-missing-count",
             "0",
-            "--mask-indels",
         ],
         cwd=Path.cwd(),
     )
 
     summary = Path(str(out_prefix) + ".site_summary.tsv").read_text(encoding="utf-8")
-    assert "masked_indel\t3\n" in summary
+    assert "masked_missingness\t3\n" in summary
     assert "masked_no_alignment\t0\n" in summary
+    assert "masked_indel_adjacent\t0\n" in summary
 
 
 def test_maf_to_sites_counts_missing_alignment_blocks_as_no_alignment(tmp_path: Path):

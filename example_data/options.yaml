@@ -8,7 +8,6 @@ results_dir: example_results
 # Direct MAF pipeline options
 # max_missing_count: 0
 max_missing_fraction: 0.0
-mask_indels: true
 mask_indel_adjacent_snps: true
 allow_multiallelic_snps: true
 add_ref: false

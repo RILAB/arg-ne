@@ -45,7 +45,6 @@ ORIG_REF_FASTA = Path(config["reference_fasta"]).resolve()
 RESULTS_DIR = Path(config.get("results_dir", "results")).resolve()
 
 ALLOW_MULTIALLELIC = _config_bool(config.get("allow_multiallelic_snps", True))
-MASK_INDELS = _config_bool(config.get("mask_indels", True))
 MASK_INDEL_ADJACENT_SNPS = _config_bool(config.get("mask_indel_adjacent_snps", True))
 ADD_REF = _config_bool(config.get("add_ref", False))
 MAX_MISSING_COUNT = config.get("max_missing_count")
@@ -292,7 +291,6 @@ rule direct_maf_sites:
             else float(MAX_MISSING_FRACTION)
         ),
         allow_multiallelic=ALLOW_MULTIALLELIC,
-        mask_indels=MASK_INDELS,
         mask_indel_adjacent_snps=MASK_INDEL_ADJACENT_SNPS,
         add_ref=ADD_REF,
         out_prefix=lambda wc: str(_direct_prefix(wc.contig)),
@@ -314,9 +312,6 @@ rule direct_maf_sites:
         fi
         if [ "{params.allow_multiallelic}" = "True" ]; then
           cmd+=(--allow-multiallelic-snps)
-        fi
-        if [ "{params.mask_indels}" = "True" ]; then
-          cmd+=(--mask-indels)
         fi
         if [ "{params.mask_indel_adjacent_snps}" = "False" ]; then
           cmd+=(--keep-indel-adjacent-snps)

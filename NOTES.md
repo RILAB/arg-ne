@@ -4,11 +4,9 @@ Detail not needed for typical use, but useful when auditing edge cases or reason
 
 ## Indel masking semantics
 
-`mask_indels: true` masks a reference position if **any** sample's alignment carries a deletion (`-`) at that position — the flag ORs across samples. This is stricter than the missingness threshold alone: even when `max_missing_count`/`max_missing_fraction` would otherwise allow the site, a single deleted sample triggers an indel mask.
+Deletion characters (`-`) in any sample contribute to that sample's missing-sample count at the affected reference position, so indel-overlapped sites are dropped whenever they cross the missingness threshold. To reproduce the old `mask_indels: true` behavior of dropping every site overlapped by *any* deletion, set `max_missing_count: 0`.
 
-With `mask_indels: false`, deletion characters still count toward per-sample missingness, so indel-overlapped sites can still be masked by the missingness filter — they're just not categorically masked as indels.
-
-`mask_indel_adjacent_snps` has no effect when `mask_indels: false`. The adjacent-flag bookkeeping only runs on the `mask_indels: true` code path.
+`mask_indel_adjacent_snps: true` masks SNPs whose reference position immediately flanks a deletion (in any sample) or an insertion (a non-`-` sample base aligned to a reference gap). Invariant adjacent positions are not masked — only sites that would otherwise be called as variants. The adjacency flags OR across samples, so a single sample's indel is enough to mask a flanking SNP.
 
 ## Multi-block alignment conflicts
 
@@ -22,7 +20,7 @@ Implemented in `_assign_code` in [scripts/maf_to_sites.py](scripts/maf_to_sites.
 
 ## Site classification in `site_summary.tsv`
 
-The masked-site categories (`masked_ref_non_acgt`, `masked_indel`, `masked_multiallelic`, `masked_no_alignment`, `masked_missingness`) are mutually exclusive: each masked position contributes to exactly one. When a site fails multiple filters, the category recorded reflects the cause checked first by the pipeline; see [scripts/maf_to_sites.py](scripts/maf_to_sites.py) for the order.
+The masked-site categories (`masked_ref_non_acgt`, `masked_indel_adjacent`, `masked_multiallelic`, `masked_no_alignment`, `masked_missingness`) are mutually exclusive: each masked position contributes to exactly one. When a site fails multiple filters, the category recorded reflects the cause checked first by the pipeline; see [scripts/maf_to_sites.py](scripts/maf_to_sites.py) for the order.
 
 `masked_no_alignment` specifically marks sites where at least one sample had no alignment block covering that position. `masked_missingness` is used when the missingness threshold was exceeded but every sample had an alignment block (the missing calls came from gaps, `N`s, or ambiguity codes rather than absent alignments).
 

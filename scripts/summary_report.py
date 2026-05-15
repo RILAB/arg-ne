@@ -757,7 +757,7 @@ tr.bad  td{background:#ffd7d7}
                     ("invariant", "Invariant"),
                     ("masked_total", "Masked total"),
                     ("masked_missingness", "Masked — missingness"),
-                    ("masked_indel", "Masked — indel"),
+                    ("masked_indel_adjacent", "Masked — indel-adjacent SNP"),
                     ("masked_multiallelic", "Masked — multiallelic"),
                     ("masked_no_alignment", "Masked — no alignment"),
                     ("masked_ref_non_acgt", "Masked — non-ACGT ref"),

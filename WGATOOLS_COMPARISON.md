@@ -43,10 +43,10 @@ algorithms, rather than competing implementations of the same algorithm.
 
 ### ARGprep — reference-anchored, per-position scan
 
-For each sample, [load_sample_calls](scripts/maf_to_sites.py#L208) walks the
+For each sample, [load_sample_calls](scripts/maf_to_sites.py#L207) walks the
 sample's MAF and writes integer base codes into a `bytearray` indexed by
 reference position. Reference-aligned `-` columns advance neither index and
-optionally flag indel/adjacent positions; gap characters in the sample are
+flag indel-adjacent reference positions; gap characters in the sample are
 recorded as missing.
 
 The main loop at [maf_to_sites.py:406](scripts/maf_to_sites.py#L406) then
@@ -93,11 +93,10 @@ Restricted to the same single pairwise MAF (one sample vs. reference), the
 two tools will not produce identical SNP call sets. The disagreements are
 concentrated at:
 
-1. **Indel-adjacent SNPs.** ARGprep's defaults (`mask_indels: true`,
-   `mask_indel_adjacent_snps: true`) drop any SNP whose reference position
-   immediately flanks an insertion or deletion. wgatools emits every `X`
-   column regardless of neighbors, so those SNPs survive there but are
-   filtered out by ARGprep.
+1. **Indel-adjacent SNPs.** ARGprep's default `mask_indel_adjacent_snps: true`
+   drops any SNP whose reference position immediately flanks an insertion or
+   deletion. wgatools emits every `X` column regardless of neighbors, so those
+   SNPs survive there but are filtered out by ARGprep.
 2. **Non-ACGT bases.** ARGprep masks any site where the reference is
    non-ACGT and treats `N` or ambiguity in a sample as *missing*, so it
    cannot drive a SNP call. wgatools' classifier only checks `c1 == c2`,

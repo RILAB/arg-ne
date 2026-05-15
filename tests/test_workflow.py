@@ -70,7 +70,6 @@ def test_workflow_remaps_requested_contigs_to_reference_names(tmp_path: Path) ->
                 'contigs: ["chr01"]',
                 'samples: ["s1", "s2"]',
                 "max_missing_count: 0",
-                "mask_indels: false",
                 "mask_indel_adjacent_snps: false",
                 "allow_multiallelic_snps: true",
             ]
@@ -151,7 +150,6 @@ def test_workflow_add_ref_appends_reference_sample_to_final_vcfs(tmp_path: Path)
                 "results_dir: results",
                 'samples: ["s1", "s2"]',
                 "max_missing_count: 0",
-                "mask_indels: false",
                 "mask_indel_adjacent_snps: false",
                 "allow_multiallelic_snps: true",
                 "add_ref: true",
