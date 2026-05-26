@@ -93,10 +93,11 @@ Restricted to the same single pairwise MAF (one sample vs. reference), the
 two tools will not produce identical SNP call sets. The disagreements are
 concentrated at:
 
-1. **Indel-adjacent SNPs.** ARGprep's default `mask_indel_adjacent_snps: true`
-   drops any SNP whose reference position immediately flanks an insertion or
-   deletion. wgatools emits every `X` column regardless of neighbors, so those
-   SNPs survive there but are filtered out by ARGprep.
+1. **Indel-adjacent SNPs.** With `mask_indel_adjacent_snps: true` (off by
+   default), ARGprep drops any SNP whose reference position immediately
+   flanks an insertion or deletion in any sample. wgatools emits every `X`
+   column regardless of neighbors, so those SNPs survive there but are
+   filtered out by ARGprep when this option is enabled.
 2. **Non-ACGT bases.** ARGprep masks any site where the reference is
    non-ACGT and treats `N` or ambiguity in a sample as *missing*, so it
    cannot drive a SNP call. wgatools' classifier only checks `c1 == c2`,

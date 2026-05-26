@@ -6,7 +6,7 @@ Detail not needed for typical use, but useful when auditing edge cases or reason
 
 Deletion characters (`-`) in any sample contribute to that sample's missing-sample count at the affected reference position, so indel-overlapped sites are dropped whenever they cross the missingness threshold. To reproduce the old `mask_indels: true` behavior of dropping every site overlapped by *any* deletion, set `max_missing_count: 0`.
 
-`mask_indel_adjacent_snps: true` masks SNPs whose reference position immediately flanks a deletion (in any sample) or an insertion (a non-`-` sample base aligned to a reference gap). Invariant adjacent positions are not masked — only sites that would otherwise be called as variants. The adjacency flags OR across samples, so a single sample's indel is enough to mask a flanking SNP.
+`mask_indel_adjacent_snps` (default `false`) masks SNPs whose reference position immediately flanks a deletion (in any sample) or an insertion (a non-`-` sample base aligned to a reference gap) when enabled. Invariant adjacent positions are not masked — only sites that would otherwise be called as variants. The adjacency flags OR across samples, so a single sample's indel is enough to mask a flanking SNP.
 
 ## Multi-block alignment conflicts
 

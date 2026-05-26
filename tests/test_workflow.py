@@ -98,6 +98,50 @@ def test_workflow_remaps_requested_contigs_to_reference_names(tmp_path: Path) ->
     importlib.util.find_spec("snakemake") is None,
     reason="snakemake is not installed in the test environment",
 )
+def test_workflow_default_contig_discovery_normalizes_maf_aliases(tmp_path: Path) -> None:
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">1\nACGT\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "chr1", "ACGT", "s1", "ACGT")
+    _write_pairwise_maf(maf_dir / "s2.maf", "1", "ACGT", "s2", "ATGT")
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "\n".join(
+            [
+                "maf_dir: maf",
+                "reference_fasta: ref.fa",
+                "results_dir: results",
+                'samples: ["s1", "s2"]',
+                "max_missing_count: 0",
+                "mask_indel_adjacent_snps: false",
+                "allow_multiallelic_snps: true",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_snakemake(tmp_path, config, str(tmp_path / "results" / "summary.html"))
+    assert result.returncode == 0, result.stderr
+
+    all_sites = tmp_path / "results" / "sites" / "combined.1.all_sites.vcf"
+    assert all_sites.exists()
+    records = [
+        line.rstrip("\n").split("\t")
+        for line in all_sites.read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
+    ]
+    assert [record[0] for record in records] == ["1", "1", "1", "1"]
+    assert [record[1] for record in records] == ["1", "2", "3", "4"]
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("snakemake") is None,
+    reason="snakemake is not installed in the test environment",
+)
 def test_workflow_rejects_ambiguous_contig_remap(tmp_path: Path) -> None:
     ref = tmp_path / "ref.fa"
     ref.write_text(">1\nACGT\n>chr1\nACGT\n", encoding="utf-8")

@@ -100,6 +100,7 @@ def test_maf_to_sites_emits_expected_records_and_mask(tmp_path: Path):
             "s2",
             "--max-missing-count",
             "0",
+            "--mask-indel-adjacent-snps",
         ],
         cwd=Path.cwd(),
     )
@@ -149,6 +150,40 @@ def test_maf_to_sites_emits_per_sample_missing_masks(tmp_path: Path):
 
     assert s1_mask == []
     assert s2_mask == [("chr1", 2, 3, "s2"), ("chr1", 7, 8, "s2")]
+
+
+def test_maf_to_sites_preserves_explicit_sample_order(tmp_path: Path):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\nAC\n", encoding="utf-8")
+    (tmp_path / "ref.fa.fai").write_text("chr1\t2\t6\t2\t3\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "chr1", "AC", "s1", "AT")
+    _write_pairwise_maf(maf_dir / "s2.maf", "chr1", "AC", "s2", "AC")
+
+    out_prefix = tmp_path / "results" / "combined.chr1"
+    _run(
+        [
+            sys.executable,
+            str(Path("scripts") / "maf_to_sites.py"),
+            "--maf-dir", str(maf_dir),
+            "--reference-fasta", str(ref),
+            "--contig", "chr1",
+            "--out-prefix", str(out_prefix),
+            "--samples", "s2", "s1",
+            "--max-missing-count", "0",
+            "--keep-indel-adjacent-snps",
+        ],
+        cwd=Path.cwd(),
+    )
+
+    all_sites = Path(str(out_prefix) + ".all_sites.vcf")
+    assert _read_vcf_header_line(all_sites).endswith("\ts2\ts1")
+    records = _read_vcf_records(all_sites)
+    assert [record[1] for record in records] == ["1", "2"]
+    assert records[0][9:] == ["0", "0"]
+    assert records[1][9:] == ["0", "1"]
 
 
 def test_maf_to_sites_per_sample_missing_mask_includes_unaligned_positions(tmp_path: Path):
@@ -309,6 +344,7 @@ def test_maf_to_sites_masks_snp_adjacent_to_insertion(tmp_path: Path):
             "s2",
             "--max-missing-count",
             "0",
+            "--mask-indel-adjacent-snps",
         ],
         cwd=Path.cwd(),
     )

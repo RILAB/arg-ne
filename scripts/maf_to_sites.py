@@ -71,7 +71,7 @@ def parse_args() -> argparse.Namespace:
         "--mask-indel-adjacent-snps",
         dest="mask_indel_adjacent_snps",
         action="store_true",
-        default=True,
+        default=False,
     )
     ap.add_argument(
         "--keep-indel-adjacent-snps",
@@ -353,7 +353,7 @@ def main() -> None:
     reference_fasta = Path(args.reference_fasta)
     contig = args.contig
     out_prefix = Path(args.out_prefix)
-    samples = sorted(args.samples) if args.samples else discover_samples(maf_dir)
+    samples = list(args.samples) if args.samples else discover_samples(maf_dir)
     if not samples:
         raise ValueError(f"No samples found under {maf_dir}")
     output_samples = [*samples, "REF"] if args.add_ref else samples

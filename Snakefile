@@ -45,7 +45,7 @@ ORIG_REF_FASTA = Path(config["reference_fasta"]).resolve()
 RESULTS_DIR = Path(config.get("results_dir", "results")).resolve()
 
 ALLOW_MULTIALLELIC = _config_bool(config.get("allow_multiallelic_snps", True))
-MASK_INDEL_ADJACENT_SNPS = _config_bool(config.get("mask_indel_adjacent_snps", True))
+MASK_INDEL_ADJACENT_SNPS = _config_bool(config.get("mask_indel_adjacent_snps", False))
 ADD_REF = _config_bool(config.get("add_ref", False))
 MAX_MISSING_COUNT = config.get("max_missing_count")
 MAX_MISSING_FRACTION = config.get("max_missing_fraction")
@@ -142,8 +142,12 @@ def _maf_contig_intersection() -> list[str]:
     if _MAF_CONTIG_INTERSECTION_CACHE is None:
         contigs_by_sample = _read_maf_contig_sets(SAMPLES)
         if contigs_by_sample:
+            normalized_sets = [
+                {normalize_contig(contig) for contig in contigs}
+                for contigs in contigs_by_sample.values()
+            ]
             _MAF_CONTIG_INTERSECTION_CACHE = sorted(
-                set.intersection(*contigs_by_sample.values())
+                set.intersection(*normalized_sets)
             )
         else:
             _MAF_CONTIG_INTERSECTION_CACHE = []
@@ -313,8 +317,8 @@ rule direct_maf_sites:
         if [ "{params.allow_multiallelic}" = "True" ]; then
           cmd+=(--allow-multiallelic-snps)
         fi
-        if [ "{params.mask_indel_adjacent_snps}" = "False" ]; then
-          cmd+=(--keep-indel-adjacent-snps)
+        if [ "{params.mask_indel_adjacent_snps}" = "True" ]; then
+          cmd+=(--mask-indel-adjacent-snps)
         fi
         if [ "{params.add_ref}" = "True" ]; then
           cmd+=(--add-ref)

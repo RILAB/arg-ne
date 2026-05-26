@@ -1,5 +1,6 @@
 ## Changes since v1.0
 
+- Changed the default for `mask_indel_adjacent_snps` from `true` to `false`. Set it explicitly to `true` in `options.yaml` (or pass `--mask-indel-adjacent-snps`) to opt back in.
 - Removed the `mask_indels` config option. Deletion gaps (`-`) already count toward per-sample missingness, so setting `max_missing_count: 0` reproduces the old `mask_indels: true` behavior. `mask_indel_adjacent_snps` is now a standalone option.
 - Renamed the `masked_indel` site-summary counter to `masked_indel_adjacent` (it now reflects only the adjacent-SNP masking it still controls).
 - Added optional `add_ref` output behavior so final `all_sites` and `variants` VCFs can include a synthetic `REF` sample with genotype `0` at every retained site.
