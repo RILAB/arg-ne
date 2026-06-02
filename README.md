@@ -99,10 +99,45 @@ Local:
 snakemake -j 8 --configfile options.yaml
 ```
 
-SLURM:
+SLURM (recommended — submit the controller as its own job):
 
 ```bash
-snakemake --profile profiles/slurm --configfile options.yaml
+sbatch profiles/slurm/run-controller.sbatch options.yaml
+# watch progress:
+tail -f logs/slurm/controller-<jobid>.out
+```
+
+This runs the long-lived Snakemake controller as a SLURM job on a
+**non-preemptable** partition and lets it submit the per-rule jobs. The
+controller must outlive every rule job, so it should never run on a preemptable
+queue. The wrapper always passes `--rerun-incomplete`.
+
+The two cluster-specific values in `run-controller.sbatch` are
+`--partition=high` and `--account=jrigrp` (the UCD farm defaults). Override them
+for another cluster without editing the file — `sbatch` CLI flags win over the
+`#SBATCH` lines:
+
+```bash
+sbatch --partition=<your-nonpreemptable> --account=<your-acct> \
+       profiles/slurm/run-controller.sbatch options.yaml
+```
+
+#### Running rule jobs on a preemptable queue
+
+Set `slurm_partition: low` (or your cluster's preemptable partition) in your
+config file to send the per-rule jobs to the cheap queue. Preemption is handled
+safely: `profiles/slurm/config.yaml` wires in `profiles/slurm/status-sacct.sh`,
+which maps a `PREEMPTED` job to *running* rather than *failed*. A preempted job
+is auto-requeued by SLURM (requires `PreemptMode=REQUEUE`, the farm `low`
+default) and reruns the rule from scratch; the controller waits for it instead
+of aborting the run. The same status command also makes genuinely failed jobs
+(TIMEOUT, OOM, NODE_FAIL, scancel) fail cleanly instead of hanging.
+
+You can still launch the controller directly (e.g. on the head node for a quick
+run), but it is then vulnerable to being killed:
+
+```bash
+snakemake --profile profiles/slurm --configfile options.yaml --rerun-incomplete
 ```
 
 When using the SLURM profile, set `slurm_account` and `slurm_partition` in your config file. Slurm defaults for other resources are defined in `profiles/slurm/config.yaml`. Parsing the MAFs is the most computationally expensive step in the pipeline, and direct-maf rule resources can be overridden in `options.yaml` (`maf_threads`, `maf_mem_mb`, `maf_time`).

@@ -2,7 +2,16 @@
 # Edit this file to customize sbatch options for your cluster.
 
 executor: cluster-generic
-cluster-generic-submit-cmd: "sbatch --account {config[slurm_account]} --partition {config[slurm_partition]} --cpus-per-task={threads} --mem={resources.mem_mb} --time={resources.time} --output logs/slurm/slurm-%j.out --error logs/slurm/slurm-%j.err"
+cluster-generic-submit-cmd: "sbatch --parsable --account {config[slurm_account]} --partition {config[slurm_partition]} --cpus-per-task={threads} --mem={resources.mem_mb} --time={resources.time} --output logs/slurm/slurm-%j.out --error logs/slurm/slurm-%j.err"
+
+# Map SLURM job state -> success / running / failed so the controller can
+# advance the DAG. Without this the executor "waits for the output file to
+# appear" and hangs forever when SLURM kills a job before it writes output
+# (TIMEOUT, OUT_OF_MEMORY, NODE_FAIL, scancel). It also maps PREEMPTED ->
+# running, so a job preempted on a requeue-mode partition (e.g. `low`) is
+# treated as in-flight while SLURM requeues and reruns it, rather than failing
+# the whole run. Requires --parsable above (so sbatch prints just the job ID).
+cluster-generic-status-cmd: profiles/slurm/status-sacct.sh
 
 # Snakemake max concurrent workflow jobs (equivalent to -j), not per-job SLURM CPUs.
 jobs: 200
