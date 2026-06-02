@@ -1,12 +1,48 @@
-## Changes since v1.0
+# Changelog
+
+Versions are git tags; check out the most recent (e.g. `git checkout v1.5`).
+v1.0 was a full rewrite from the legacy TASSEL/gVCF/GATK pipeline — the
+pre-v1.0 (`v0.x`) entries at the bottom describe that older lineage and do not
+carry forward to the v1.x series.
+
+## v1.5
+
+No changes to pipeline outputs since v1.4. SLURM preemption safety only:
+
+- Added a cluster-generic status command (`profiles/slurm/status-sacct.sh`) that maps `PREEMPTED` to *running* and genuine failures (`TIMEOUT`, `OUT_OF_MEMORY`, `NODE_FAIL`, `scancel`) to *failed*. Rule jobs can now run on a preemptable queue (set `slurm_partition: low`): a preempted job is auto-requeued by SLURM and the controller waits for the rerun, while real failures surface cleanly instead of hanging in "wait for output" mode.
+- Added `profiles/slurm/run-controller.sbatch` to run the long-lived Snakemake controller on a non-preemptable partition so it outlives the rule jobs.
+- Documented the recommended `sbatch` run and how to override the two cluster-specific values (`--partition`/`--account`) for other clusters.
+
+## v1.4
+
+Behavior changes (may change variant counts on the same `options.yaml` — review your config when upgrading):
 
 - Changed the default for `mask_indel_adjacent_snps` from `true` to `false`. Set it explicitly to `true` in `options.yaml` (or pass `--mask-indel-adjacent-snps`) to opt back in.
-- Removed the `mask_indels` config option. Deletion gaps (`-`) already count toward per-sample missingness, so setting `max_missing_count: 0` reproduces the old `mask_indels: true` behavior. `mask_indel_adjacent_snps` is now a standalone option.
+- Removed the `mask_indels` config option. Deletion gaps (`-`) already count toward per-sample missingness, so setting `max_missing_count: 0` reproduces the old `mask_indels: true` behavior.
 - Renamed the `masked_indel` site-summary counter to `masked_indel_adjacent` (it now reflects only the adjacent-SNP masking it still controls).
-- Added optional `add_ref` output behavior so final `all_sites` and `variants` VCFs can include a synthetic `REF` sample with genotype `0` at every retained site.
-- Fixed .gitignore not updating example_data
 
-## New Pipeline Argrep v1.0
+## v1.3
+
+- Redesigned the HTML summary report for clarity and browser performance.
+- Removed the `treat_n_as_missing` flag; `N` is now always treated as missing.
+- Per-individual missing BED files now include the sample name in the filename.
+- Improved contig-resolution UX with a lazy MAF scan; default contig discovery normalizes contig names across per-sample MAFs (e.g. `chr1` and `1` intersect), and `maf_to_sites` preserves explicit `--samples` order instead of sorting.
+- Clarified `summary_window_bp` scope and documented skipped-contig behavior.
+- Split README/NOTES, added a citation note, and fixed citation author formatting.
+
+## v1.2
+
+- Added per-sample missing-data BED masks.
+- Documented new config keys, TSV outputs, and defaults; fixed the `treat_n_as_missing` default and updated the README to match current pipeline behavior.
+
+## v1.1
+
+- Added the `add_ref` option so final `all_sites` and `variants` VCFs can include a synthetic `REF` sample with genotype `0` at every retained site.
+- Skip empty scaffolds/chromosomes in `summary.html` plots.
+- Embedded the config file and pipeline version in the summary report.
+- Fixed bugs and inefficiencies identified in a pipeline review.
+
+## v1.0 — new direct-MAF pipeline
 
 - Replaced the legacy TASSEL/gVCF/GATK workflow with a direct MAF-to-sites pipeline.
 - The workflow now reads per-sample MAFs directly and emits three per-contig outputs:
@@ -15,17 +51,18 @@
   - `combined.<contig>.masked.bed`
 - Site classification is now done in reference coordinates from the MAF alignment itself rather than from merged gVCF records.
 - Missingness filtering is configurable with either `max_missing_count` or `max_missing_fraction`; if both are set, the stricter threshold is used.
-- Indel handling is configurable:
-  - `mask_indel_adjacent_snps` optionally masks SNPs adjacent to insertions or deletions
+- Indel handling is configurable: `mask_indel_adjacent_snps` optionally masks SNPs adjacent to insertions or deletions.
 - Multiallelic SNPs are retained by default and can be disabled with `allow_multiallelic_snps`.
-- Coverage validation was simplified: `maf_to_sites.py` now performs the retained-sites-plus-mask contig-span check internally without a separate `coverage.txt` artifact.
+- Coverage validation was simplified: `maf_to_sites.py` performs the retained-sites-plus-mask contig-span check internally without a separate `coverage.txt` artifact.
 - Added a direct-pipeline `summary.html` report with 100 kb window plots showing percent invariant, percent variable, and percent missing along each contig.
-- Added an msprime-based simulation helper that generates:
-  - reference FASTA
-  - sample FASTA sequences
-  - pairwise MAFs against the reference sequence
-  - realized indel tables
-  - summary truth counts for SNPs and indel-affected reference positions
+- Added an msprime-based simulation helper that generates reference FASTA, sample FASTA sequences, pairwise MAFs against the reference, realized indel tables, and summary truth counts for SNPs and indel-affected reference positions.
+
+---
+
+# Legacy (pre-v1.0 TASSEL/gVCF pipeline)
+
+These entries describe the older pipeline that v1.0 replaced. They are retained
+for historical reference and do not apply to the v1.x series above.
 
 ## Changes since v0.4
 
@@ -63,7 +100,7 @@
 - Added `results/split/combined.<contig>.coverage.txt` to documented workflow outputs.
 - Added split-test coverage for invariant/nonref and genotype-preserving clean formatting.
 - Updated SLURM profile default resources to numeric values to avoid resource conversion/submission errors.
-- Added merge_gvcf_max_jobs pipeline concurrency control
+- Added `merge_gvcf_max_jobs` pipeline concurrency control.
 
 ## Changes since v0.1
 

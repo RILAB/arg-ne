@@ -8,7 +8,7 @@ Ross-Ibarra, J. 2026. ARGprep: A pipeline to prepare pairwise whole-genome align
 
 If your use case is pairwise variant discovery (SNPs, large indels, inversions) rather than ARG-ready all-sites output, [wgatools](https://github.com/wjwei-handsome/wgatools) is a potential alternative. See [WGATOOLS_COMPARISON.md](WGATOOLS_COMPARISON.md) for a detailed comparison of the two approaches.
 
-> **Which version to use:** check out the most recent tagged commit (e.g. `git checkout v1.5`) rather than an older release. 
+> **Which version to use:** check out the most recent tagged commit (e.g. `git checkout v1.5`) rather than an older release. See [changelog.md](changelog.md) for a per-version breakdown of changes.
 
 ## Requirements
 
