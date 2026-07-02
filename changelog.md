@@ -5,6 +5,10 @@ v1.0 was a full rewrite from the legacy TASSEL/gVCF/GATK pipeline — the
 pre-v1.0 (`v0.x`) entries at the bottom describe that older lineage and do not
 carry forward to the v1.x series.
 
+## v1.6
+
+- Added optional per-sample assembly-quality masking. Set `quality_bed_dir` (a directory of `<sample>.bed`/`.bed.gz` files in each sample's own genome coordinates, rows `chrom start end score`) and `quality_min` to treat aligned bases scoring below the threshold as missing. Disabled by default; masked bases flow through the existing `max_missing_*` thresholds and per-sample `*.missing.bed` outputs. Both `+` and `-` strand query alignments are supported.
+
 ## v1.5
 
 No changes to pipeline outputs since v1.4. SLURM preemption safety only:

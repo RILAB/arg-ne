@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.maf_to_sites import (
     discover_samples,
+    load_quality_mask,
     maf_path_for_sample,
     missing_threshold,
     read_contig_sequence,
@@ -25,6 +26,25 @@ def _write_pairwise_maf(path: Path, contig: str, ref_seq: str, sample: str, samp
         "a score=0\n"
         f"s {contig} 0 {len(ref_seq.replace('-', ''))} + {len(ref_seq.replace('-', ''))} {ref_seq}\n"
         f"s {sample} 0 {len(sample_seq.replace('-', ''))} + {len(sample_seq.replace('-', ''))} {sample_seq}\n",
+        encoding="utf-8",
+    )
+
+
+def _write_pairwise_maf_strand(
+    path: Path,
+    contig: str,
+    ref_seq: str,
+    sample: str,
+    sample_seq: str,
+    strand: str,
+    start: int,
+    src_size: int,
+) -> None:
+    path.write_text(
+        "##maf version=1\n"
+        "a score=0\n"
+        f"s {contig} 0 {len(ref_seq.replace('-', ''))} + {len(ref_seq.replace('-', ''))} {ref_seq}\n"
+        f"s {sample} {start} {len(sample_seq.replace('-', ''))} {strand} {src_size} {sample_seq}\n",
         encoding="utf-8",
     )
 
@@ -625,3 +645,142 @@ def test_read_contig_sequence_raises_when_contig_is_missing(tmp_path: Path) -> N
 def test_missing_threshold_rejects_invalid_fraction(fraction: float) -> None:
     with pytest.raises(ValueError, match="--max-missing-fraction must be between 0 and 1"):
         missing_threshold(4, None, fraction)
+
+
+def test_load_quality_mask_keeps_only_below_threshold(tmp_path: Path) -> None:
+    bed = tmp_path / "s.bed"
+    bed.write_text(
+        "# comment\n"
+        "track name=quality\n"
+        "chrX\t10\t20\t0.95\n"  # passes threshold -> ignored
+        "chrX\t30\t40\t0.5\n"  # below threshold -> low quality
+        "chrY\t0\t5\t0.1\n"
+        "chrX\tbad\trow\n",  # malformed -> skipped
+        encoding="utf-8",
+    )
+    mask = load_quality_mask(bed, 0.9)
+
+    assert mask.is_low("chrX", 35) is True
+    assert mask.is_low("chrX", 15) is False  # passing interval not stored
+    assert mask.is_low("chrX", 40) is False  # half-open end excluded
+    assert mask.is_low("chrY", 3) is True
+    assert mask.is_low("chrZ", 0) is False
+
+
+def test_quality_mask_treats_plus_strand_bases_as_missing(tmp_path: Path):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\nACGT\n", encoding="utf-8")
+    (tmp_path / "ref.fa.fai").write_text("chr1\t4\t6\t4\t5\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "chr1", "ACGT", "s1", "ACGT")
+    # s2 carries a SNP (G) at ref idx 1; without masking this is a variant site.
+    _write_pairwise_maf(maf_dir / "s2.maf", "chr1", "ACGT", "s2", "AGGT")
+
+    quality_dir = tmp_path / "quality"
+    quality_dir.mkdir()
+    # s2's own forward coordinate of the second aligned base is 1 (start 0, + strand).
+    (quality_dir / "s2.bed").write_text("s2\t1\t2\t0.5\n", encoding="utf-8")
+
+    out_prefix = tmp_path / "results" / "combined.chr1"
+    _run(
+        [
+            sys.executable,
+            str(Path("scripts") / "maf_to_sites.py"),
+            "--maf-dir", str(maf_dir),
+            "--reference-fasta", str(ref),
+            "--contig", "chr1",
+            "--out-prefix", str(out_prefix),
+            "--samples", "s1", "s2",
+            "--max-missing-count", "1",
+            "--quality-bed-dir", str(quality_dir),
+            "--quality-min", "0.9",
+        ],
+        cwd=Path.cwd(),
+    )
+
+    all_records = _read_vcf_records(Path(str(out_prefix) + ".all_sites.vcf"))
+    variant_records = _read_vcf_records(Path(str(out_prefix) + ".vcf"))
+    s2_mask = _read_bed(Path(str(out_prefix) + ".s2.missing.bed"))
+
+    # The masked base makes ref idx 1 invariant, so no variant is emitted there.
+    assert [record[1] for record in variant_records] == []
+    pos2 = next(record for record in all_records if record[1] == "2")
+    assert pos2[9:] == ["0", "."]  # s2 now missing at the masked position
+    assert s2_mask == [("chr1", 1, 2, "s2")]
+
+
+def test_quality_mask_handles_minus_strand_coordinates(tmp_path: Path):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\nACGT\n", encoding="utf-8")
+    (tmp_path / "ref.fa.fai").write_text("chr1\t4\t6\t4\t5\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "chr1", "ACGT", "s1", "ACGT")
+    # s2 aligns on the minus strand (start 0, src_size 4). The second aligned
+    # base (ref idx 1) has forward coordinate 4 - 0 - 1 - 1 = 2.
+    _write_pairwise_maf_strand(
+        maf_dir / "s2.maf", "chr1", "ACGT", "s2", "AGGT", "-", 0, 4
+    )
+
+    quality_dir = tmp_path / "quality"
+    quality_dir.mkdir()
+    (quality_dir / "s2.bed").write_text("s2\t2\t3\t0.5\n", encoding="utf-8")
+
+    out_prefix = tmp_path / "results" / "combined.chr1"
+    _run(
+        [
+            sys.executable,
+            str(Path("scripts") / "maf_to_sites.py"),
+            "--maf-dir", str(maf_dir),
+            "--reference-fasta", str(ref),
+            "--contig", "chr1",
+            "--out-prefix", str(out_prefix),
+            "--samples", "s1", "s2",
+            "--max-missing-count", "1",
+            "--quality-bed-dir", str(quality_dir),
+            "--quality-min", "0.9",
+        ],
+        cwd=Path.cwd(),
+    )
+
+    all_records = _read_vcf_records(Path(str(out_prefix) + ".all_sites.vcf"))
+    variant_records = _read_vcf_records(Path(str(out_prefix) + ".vcf"))
+
+    # Minus-strand coordinate 2 maps to ref idx 1, masking the SNP there.
+    assert [record[1] for record in variant_records] == []
+    pos2 = next(record for record in all_records if record[1] == "2")
+    assert pos2[9:] == ["0", "."]
+
+
+def test_quality_mask_requires_quality_min(tmp_path: Path):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\nAC\n", encoding="utf-8")
+    (tmp_path / "ref.fa.fai").write_text("chr1\t2\t6\t2\t3\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "chr1", "AC", "s1", "AC")
+
+    quality_dir = tmp_path / "quality"
+    quality_dir.mkdir()
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(Path("scripts") / "maf_to_sites.py"),
+            "--maf-dir", str(maf_dir),
+            "--reference-fasta", str(ref),
+            "--contig", "chr1",
+            "--out-prefix", str(tmp_path / "results" / "combined.chr1"),
+            "--samples", "s1",
+            "--quality-bed-dir", str(quality_dir),
+        ],
+        cwd=Path.cwd(),
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode != 0
+    assert "--quality-bed-dir requires --quality-min" in proc.stderr

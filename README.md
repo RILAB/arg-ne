@@ -8,7 +8,7 @@ Ross-Ibarra, J. 2026. ARGprep: A pipeline to prepare pairwise whole-genome align
 
 If your use case is pairwise variant discovery (SNPs, large indels, inversions) rather than ARG-ready all-sites output, [wgatools](https://github.com/wjwei-handsome/wgatools) is a potential alternative. See [WGATOOLS_COMPARISON.md](WGATOOLS_COMPARISON.md) for a detailed comparison of the two approaches.
 
-> **Which version to use:** check out the most recent tagged commit (e.g. `git checkout v1.5`) rather than an older release. See [changelog.md](changelog.md) for a per-version breakdown of changes.
+> **Which version to use:** check out the most recent tagged commit (e.g. `git checkout v1.6`) rather than an older release. See [changelog.md](changelog.md) for a per-version breakdown of changes.
 
 ## Requirements
 
@@ -44,6 +44,7 @@ Optional controls (defaults shown):
 - `allow_multiallelic_snps: true` - retain sites with more than two alleles
 - `add_ref: false` - append a synthetic `REF` sample (genotype `0`) to both VCFs
 - `summary_window_bp: 100000` - window size in bp for binned per-contig plots in `summary.html` (this does not affect the per-MAF tables)
+- `quality_bed_dir` / `quality_min` - no default; optional per-sample assembly-quality masking (see below)
 
 SLURM resource overrides (for the `direct_maf_sites` rule):
 
@@ -86,6 +87,14 @@ Missingness thresholds:
 - A sample counts as missing at a site if it has no alignment block covering that position, carries a gap (`-`), an `N`, or any other non-ACGT character. To drop every site overlapped by a deletion in any sample, set `max_missing_count: 0` (the default) — gaps always contribute to the missing-sample count.
 
 Adjacent-SNP masking is documented in detail in [NOTES.md](NOTES.md).
+
+Per-sample assembly-quality masking:
+
+- Disabled by default. Enable it by setting both `quality_bed_dir` and `quality_min`; setting only one is an error.
+- `quality_bed_dir` is a directory of per-sample BED files named `<sample>.bed` or `<sample>.bed.gz`, in each sample's **own genome coordinates** (not reference coordinates). Samples without a matching file are simply left unmasked.
+- Each BED row is `chrom start end score` (whitespace-separated, 0-based half-open, `score` a 0-1 quality value). `track`/`browser`/comment lines and rows with fewer than four fields are ignored. Only intervals you want to flag need to be listed; positions not covered by any row are treated as passing.
+- `chrom` must match the sample's own sequence names as they appear in that sample's MAF query rows. Both `+` and `-` strand alignments are handled (BED coordinates are always forward-strand).
+- Any aligned base whose score is **below** `quality_min` is treated as missing, exactly as if it were an `N`. It therefore counts toward the `max_missing_*` thresholds and appears in that sample's `*.missing.bed`.
 
 Reference-sample behavior:
 

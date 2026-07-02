@@ -50,6 +50,21 @@ ADD_REF = _config_bool(config.get("add_ref", False))
 MAX_MISSING_COUNT = config.get("max_missing_count")
 MAX_MISSING_FRACTION = config.get("max_missing_fraction")
 
+QUALITY_BED_DIR = config.get("quality_bed_dir")
+if QUALITY_BED_DIR in (None, ""):
+    QUALITY_BED_DIR = None
+else:
+    QUALITY_BED_DIR = Path(QUALITY_BED_DIR).resolve()
+QUALITY_MIN = config.get("quality_min")
+if QUALITY_MIN not in (None, ""):
+    QUALITY_MIN = float(QUALITY_MIN)
+    if not 0 <= QUALITY_MIN <= 1:
+        raise ValueError(f"quality_min must be between 0 and 1; got {QUALITY_MIN}")
+elif QUALITY_BED_DIR is not None:
+    raise ValueError("quality_bed_dir is set but quality_min is missing; set both or neither.")
+else:
+    QUALITY_MIN = None
+
 DEFAULT_MEM_MB = 48000
 DEFAULT_THREADS = 2
 DEFAULT_TIME = "24:00:00"
@@ -70,6 +85,29 @@ def _maf_path_for_sample(sample: str) -> Path:
     if maf_gz.exists():
         return maf_gz
     return maf
+
+
+def _quality_bed_for_sample(sample: str) -> Path | None:
+    if QUALITY_BED_DIR is None:
+        return None
+    plain = QUALITY_BED_DIR / f"{sample}.bed"
+    gz = QUALITY_BED_DIR / f"{sample}.bed.gz"
+    if plain.exists():
+        return plain
+    if gz.exists():
+        return gz
+    return None
+
+
+def _quality_bed_inputs():
+    if QUALITY_BED_DIR is None:
+        return []
+    beds = []
+    for sample in SAMPLES:
+        bed = _quality_bed_for_sample(sample)
+        if bed is not None:
+            beds.append(str(bed))
+    return beds
 
 
 def _discover_samples():
@@ -274,6 +312,7 @@ rule direct_maf_sites:
         mafs=lambda wc: [_maf_input(sample) for sample in SAMPLES],
         ref=str(DIRECT_REF_FASTA),
         fai=REF_FAI,
+        quality_beds=lambda wc: _quality_bed_inputs(),
     output:
         all_sites=str(RESULTS_DIR / "sites" / "combined.{contig}.all_sites.vcf"),
         variants=str(RESULTS_DIR / "sites" / "combined.{contig}.vcf"),
@@ -297,6 +336,8 @@ rule direct_maf_sites:
         allow_multiallelic=ALLOW_MULTIALLELIC,
         mask_indel_adjacent_snps=MASK_INDEL_ADJACENT_SNPS,
         add_ref=ADD_REF,
+        quality_bed_dir=("" if QUALITY_BED_DIR is None else str(QUALITY_BED_DIR)),
+        quality_min=("" if QUALITY_MIN is None else QUALITY_MIN),
         out_prefix=lambda wc: str(_direct_prefix(wc.contig)),
     shell:
         """
@@ -322,6 +363,9 @@ rule direct_maf_sites:
         fi
         if [ "{params.add_ref}" = "True" ]; then
           cmd+=(--add-ref)
+        fi
+        if [ -n "{params.quality_bed_dir}" ]; then
+          cmd+=(--quality-bed-dir "{params.quality_bed_dir}" --quality-min "{params.quality_min}")
         fi
         "${{cmd[@]}}"
         """

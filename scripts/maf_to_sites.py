@@ -10,6 +10,7 @@ Directly project per-sample MAF alignments onto reference coordinates and emit:
 from __future__ import annotations
 
 import argparse
+import bisect
 import sys
 from collections import Counter
 from dataclasses import dataclass
@@ -51,6 +52,76 @@ class MafRecord:
     text: str
 
 
+class QualityMask:
+    """Low-quality intervals per source sequence, in that sequence's own
+    forward-strand coordinates.
+
+    A per-sample BED file lists ``chrom start end score`` rows (score is a
+    0-1 assembly-quality value). Any base whose score is *below* the configured
+    threshold is considered low quality; aligned bases at those positions are
+    treated as missing during parsing. Intervals with a passing score do not
+    need to be listed.
+    """
+
+    def __init__(self, low_quality: dict[str, list[tuple[int, int]]]):
+        # Merged, sorted low-quality intervals per source sequence, plus a
+        # parallel list of interval starts for bisecting.
+        self._intervals = low_quality
+        self._starts = {
+            src: [start for start, _ in intervals]
+            for src, intervals in low_quality.items()
+        }
+
+    def is_low(self, src: str, pos: int) -> bool:
+        intervals = self._intervals.get(src)
+        if not intervals:
+            return False
+        starts = self._starts[src]
+        i = bisect.bisect_right(starts, pos) - 1
+        if i < 0:
+            return False
+        start, end = intervals[i]
+        return start <= pos < end
+
+
+def load_quality_mask(bed_path: Path, quality_min: float) -> QualityMask:
+    """Build a :class:`QualityMask` from a per-sample quality BED file.
+
+    Rows are ``chrom start end score`` (whitespace-separated); ``track``/
+    ``browser``/comment lines and rows with fewer than four fields are ignored.
+    Only intervals whose score is below ``quality_min`` are retained.
+    """
+    raw: dict[str, list[tuple[int, int]]] = {}
+    with open_text(bed_path, "rt", errors="ignore") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if not stripped or stripped.startswith(("#", "track", "browser")):
+                continue
+            parts = stripped.split()
+            if len(parts) < 4:
+                continue
+            try:
+                start = int(parts[1])
+                end = int(parts[2])
+                score = float(parts[3])
+            except ValueError:
+                continue
+            if score < quality_min:
+                raw.setdefault(parts[0], []).append((start, end))
+    merged = {src: merge_intervals(intervals) for src, intervals in raw.items()}
+    return QualityMask(merged)
+
+
+def quality_bed_for_sample(quality_bed_dir: Path, sample: str) -> Path | None:
+    plain = quality_bed_dir / f"{sample}.bed"
+    gz = quality_bed_dir / f"{sample}.bed.gz"
+    if plain.exists():
+        return plain
+    if gz.exists():
+        return gz
+    return None
+
+
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--maf-dir", required=True, help="Directory containing per-sample .maf/.maf.gz files")
@@ -79,6 +150,21 @@ def parse_args() -> argparse.Namespace:
         action="store_false",
     )
     ap.add_argument("--add-ref", action="store_true", default=False)
+    ap.add_argument(
+        "--quality-bed-dir",
+        default=None,
+        help=(
+            "Directory of per-sample quality BED files (<sample>.bed / .bed.gz) in "
+            "each sample's own genome coordinates. Aligned bases whose score is "
+            "below --quality-min are treated as missing. Requires --quality-min."
+        ),
+    )
+    ap.add_argument(
+        "--quality-min",
+        type=float,
+        default=None,
+        help="Quality threshold in [0, 1]; bases scoring below this are treated as missing.",
+    )
     return ap.parse_args()
 
 
@@ -208,6 +294,7 @@ def load_sample_calls(
     maf_path: Path,
     contig: str,
     contig_len: int,
+    quality_mask: QualityMask | None = None,
 ) -> tuple[bytearray, bytearray]:
     calls = bytearray(contig_len)
     adjacent_indel_flags = bytearray(contig_len)
@@ -218,13 +305,23 @@ def load_sample_calls(
             continue
         ref_record, sample_record = chosen
         ref_pos = ref_record.start
+        # Track the sample's own-genome coordinate so per-sample quality masks
+        # (keyed by the sample sequence name and forward-strand position) can be
+        # applied. `sample_offset` counts aligning sample bases consumed so far.
+        sample_src = sample_record.src
+        sample_start = sample_record.start
+        sample_src_size = sample_record.src_size
+        sample_minus = sample_record.strand == "-"
+        sample_offset = 0
         prev_ref_idx: int | None = None
         mark_next_ref_adjacent = False
         for ref_char, sample_char in zip(ref_record.text.upper(), sample_record.text.upper()):
             if ref_char == "-":
-                if sample_char != "-" and prev_ref_idx is not None:
-                    adjacent_indel_flags[prev_ref_idx] = 1
-                    mark_next_ref_adjacent = True
+                if sample_char != "-":
+                    if prev_ref_idx is not None:
+                        adjacent_indel_flags[prev_ref_idx] = 1
+                        mark_next_ref_adjacent = True
+                    sample_offset += 1
                 continue
 
             if ref_pos >= contig_len:
@@ -243,6 +340,18 @@ def load_sample_calls(
                 if idx > 0:
                     adjacent_indel_flags[idx - 1] = 1
                 mark_next_ref_adjacent = True
+                continue
+
+            # A sample base is present here, consuming one sample-genome
+            # position. Resolve its forward-strand coordinate before advancing.
+            if sample_minus:
+                sample_coord = sample_src_size - sample_start - 1 - sample_offset
+            else:
+                sample_coord = sample_start + sample_offset
+            sample_offset += 1
+
+            if quality_mask is not None and quality_mask.is_low(sample_src, sample_coord):
+                _assign_code(calls, idx, NUC_TO_CODE["?"])
                 continue
 
             if sample_char in VALID_BASES:
@@ -358,16 +467,30 @@ def main() -> None:
         raise ValueError(f"No samples found under {maf_dir}")
     output_samples = [*samples, "REF"] if args.add_ref else samples
 
+    quality_bed_dir: Path | None = None
+    if args.quality_bed_dir is not None:
+        if args.quality_min is None:
+            raise ValueError("--quality-bed-dir requires --quality-min")
+        if not 0 <= args.quality_min <= 1:
+            raise ValueError("--quality-min must be between 0 and 1")
+        quality_bed_dir = Path(args.quality_bed_dir)
+
     contig_seq = read_contig_sequence(reference_fasta, contig)
     contig_len = len(contig_seq)
     sample_arrays: list[bytearray] = []
     adjacent_indel_flags = bytearray(contig_len)
 
     for sample in samples:
+        quality_mask: QualityMask | None = None
+        if quality_bed_dir is not None:
+            bed_path = quality_bed_for_sample(quality_bed_dir, sample)
+            if bed_path is not None:
+                quality_mask = load_quality_mask(bed_path, args.quality_min)
         calls, sample_adjacent_indels = load_sample_calls(
             maf_path_for_sample(maf_dir, sample),
             contig,
             contig_len,
+            quality_mask,
         )
         sample_arrays.append(calls)
         for i in range(len(sample_adjacent_indels)):

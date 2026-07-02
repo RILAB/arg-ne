@@ -12,6 +12,13 @@ mask_indel_adjacent_snps: false
 allow_multiallelic_snps: true
 add_ref: false
 
+# Per-sample assembly-quality masking (disabled by default).
+# Point quality_bed_dir at a directory of <sample>.bed / <sample>.bed.gz files
+# in each sample's own genome coordinates (chrom start end score, score 0-1);
+# aligned bases scoring below quality_min are treated as missing.
+# quality_bed_dir: example_data/quality_beds
+# quality_min: 0.9
+
 # Rule-specific resources
 maf_threads: 2
 maf_mem_mb: 96000
