@@ -69,7 +69,9 @@ else:
     QUALITY_MIN = None
 
 DEFAULT_MEM_MB = 48000
-DEFAULT_THREADS = 2
+# maf_to_sites.py is single-threaded, so reserving more than one core for
+# direct_maf_sites (the only rule using this default) just wastes an allocation.
+DEFAULT_THREADS = 1
 DEFAULT_TIME = "24:00:00"
 SUMMARY_WINDOW_BP = int(config.get("summary_window_bp", 100000))
 if SUMMARY_WINDOW_BP <= 0:

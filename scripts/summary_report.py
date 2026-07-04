@@ -121,7 +121,7 @@ def read_all_sites_stats(
                 sm = per_sample_missing.setdefault(contig, {s: 0 for s in samples})
                 sc = per_sample_called.setdefault(contig, {s: 0 for s in samples})
                 for s_idx, sample in enumerate(samples):
-                    gt = parts[9 + s_idx].split(":", 1)[0]
+                    gt = parts[9 + s_idx].partition(":")[0]
                     if gt == ".":
                         sm[sample] += 1
                     else:

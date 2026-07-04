@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Iterator
 
+import numpy as np
+
 try:
     from scripts.common import merge_intervals, normalize_contig, open_text
 except ModuleNotFoundError:
@@ -326,9 +328,13 @@ def load_sample_calls(
     contig: str,
     contig_len: int,
     quality_mask: QualityMask | None = None,
-) -> tuple[bytearray, bytearray]:
+    track_indel_adjacent: bool = False,
+) -> tuple[bytearray, bytearray | None]:
     calls = bytearray(contig_len)
-    adjacent_indel_flags = bytearray(contig_len)
+    # Only allocate/track the per-column indel-adjacency array when the
+    # downstream masking feature is actually enabled (see main); when off it
+    # is never read, so building it wastes O(contig_len) memory and time.
+    adjacent_indel_flags = bytearray(contig_len) if track_indel_adjacent else None
 
     for block in iter_maf_blocks(maf_path):
         chosen = choose_sample_record(block, contig)
@@ -350,7 +356,8 @@ def load_sample_calls(
             if ref_char == "-":
                 if sample_char != "-":
                     if prev_ref_idx is not None:
-                        adjacent_indel_flags[prev_ref_idx] = 1
+                        if adjacent_indel_flags is not None:
+                            adjacent_indel_flags[prev_ref_idx] = 1
                         mark_next_ref_adjacent = True
                     sample_offset += 1
                 continue
@@ -362,14 +369,16 @@ def load_sample_calls(
             prev_ref_idx = idx
 
             if mark_next_ref_adjacent:
-                adjacent_indel_flags[idx] = 1
+                if adjacent_indel_flags is not None:
+                    adjacent_indel_flags[idx] = 1
                 mark_next_ref_adjacent = False
 
             if sample_char == "-":
                 _assign_code(calls, idx, NUC_TO_CODE["-"])
-                adjacent_indel_flags[idx] = 1
-                if idx > 0:
-                    adjacent_indel_flags[idx - 1] = 1
+                if adjacent_indel_flags is not None:
+                    adjacent_indel_flags[idx] = 1
+                    if idx > 0:
+                        adjacent_indel_flags[idx - 1] = 1
                 mark_next_ref_adjacent = True
                 continue
 
@@ -538,7 +547,15 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="argprep-calls-") as call_tmp_dir:
         sample_arrays: list[mmap.mmap] = []
         sample_array_files = []
-        adjacent_indel_flags = bytearray(contig_len)
+        track_indel_adjacent = args.mask_indel_adjacent_snps
+        # Only allocated/merged when the indel-adjacent masking feature is on;
+        # otherwise it is never read in the main loop.
+        adjacent_indel_flags = bytearray(contig_len) if track_indel_adjacent else None
+        merged_adjacent = (
+            np.frombuffer(adjacent_indel_flags, dtype=np.uint8)
+            if adjacent_indel_flags is not None
+            else None
+        )
 
         for sample in samples:
             quality_mask: QualityMask | None = None
@@ -551,6 +568,7 @@ def main() -> None:
                 contig,
                 contig_len,
                 quality_mask,
+                track_indel_adjacent=track_indel_adjacent,
             )
             call_file = tempfile.TemporaryFile(dir=call_tmp_dir)
             call_file.write(calls)
@@ -560,8 +578,10 @@ def main() -> None:
             )
             sample_array_files.append(call_file)
             del calls
-            for i in range(len(sample_adjacent_indels)):
-                adjacent_indel_flags[i] |= sample_adjacent_indels[i]
+            if merged_adjacent is not None and sample_adjacent_indels is not None:
+                # Vectorized OR-merge over a zero-copy uint8 view of the flags
+                # buffer (replaces a pure-Python O(contig_len) loop per sample).
+                merged_adjacent |= np.frombuffer(sample_adjacent_indels, dtype=np.uint8)
 
         allowed_missing = missing_threshold(
             len(samples),
@@ -585,91 +605,105 @@ def main() -> None:
             retained_total = 0
             counts: Counter[str] = Counter()
 
-            for idx, ref_base in enumerate(contig_seq):
-                pos = idx + 1
-                if ref_base not in VALID_BASES:
-                    mask_intervals.add(idx)
-                    masked_total += 1
-                    counts["masked_ref_non_acgt"] += 1
-                    continue
+            allow_multiallelic = args.allow_multiallelic_snps
+            add_ref = args.add_ref
+            # Zero-copy uint8 views over each sample's mmap-backed call buffer.
+            sample_views = [np.frombuffer(calls, dtype=np.uint8) for calls in sample_arrays]
+            num_samples = len(sample_views)
+            # Codes 1-4 map to A, C, G, T (see CODE_TO_BASE); building the base
+            # list in code order yields the same order as sorted(allele_set).
+            code_bases = ("A", "C", "G", "T")
+            # Process in position-chunks so the stacked per-sample array is
+            # bounded to num_samples * CHUNK bytes rather than num_samples * L.
+            CHUNK = 1_000_000
 
-                alleles: list[str] = []
-                allele_set: set[str] = set()
-                missing = 0
-                call_codes: list[int] = []
-                has_unaligned_sample = False
-                for calls in sample_arrays:
-                    code = calls[idx]
-                    call_codes.append(code)
-                    if code == 0:
-                        has_unaligned_sample = True
-                    if code in MISSING_CODES:
-                        missing += 1
+            for c0 in range(0, contig_len, CHUNK):
+                c1 = min(c0 + CHUNK, contig_len)
+                block = np.stack([view[c0:c1] for view in sample_views])
+                missing_mask = (block == 0) | (block == 5) | (block == 7)
+                missing_counts = missing_mask.sum(axis=0).tolist()
+                has_unaligned = (block == 0).any(axis=0).tolist()
+                present1 = (block == 1).any(axis=0).tolist()
+                present2 = (block == 2).any(axis=0).tolist()
+                present3 = (block == 3).any(axis=0).tolist()
+                present4 = (block == 4).any(axis=0).tolist()
+
+                for j in range(c1 - c0):
+                    idx = c0 + j
+                    ref_base = contig_seq[idx]
+                    pos = idx + 1
+                    if ref_base not in VALID_BASES:
+                        mask_intervals.add(idx)
+                        masked_total += 1
+                        counts["masked_ref_non_acgt"] += 1
                         continue
-                    base = CODE_TO_BASE[code]
-                    alleles.append(base)
-                    allele_set.add(base)
 
-                if not alleles:
-                    mask_intervals.add(idx)
-                    masked_total += 1
-                    if has_unaligned_sample:
-                        counts["masked_no_alignment"] += 1
-                    else:
-                        counts["masked_missingness"] += 1
-                    continue
+                    missing = missing_counts[j]
+                    ns = num_samples - missing
 
-                alt_order = sorted(a for a in allele_set if a != ref_base)
+                    if ns == 0:
+                        mask_intervals.add(idx)
+                        masked_total += 1
+                        if has_unaligned[j]:
+                            counts["masked_no_alignment"] += 1
+                        else:
+                            counts["masked_missingness"] += 1
+                        continue
 
-                if args.mask_indel_adjacent_snps and alt_order and adjacent_indel_flags[idx]:
-                    mask_intervals.add(idx)
-                    masked_total += 1
-                    counts["masked_indel_adjacent"] += 1
-                    continue
+                    present = (present1[j], present2[j], present3[j], present4[j])
+                    allele_set = {code_bases[b] for b in range(4) if present[b]}
+                    alt_order = [a for a in code_bases if a in allele_set and a != ref_base]
 
-                if missing > allowed_missing:
-                    mask_intervals.add(idx)
-                    masked_total += 1
-                    if has_unaligned_sample:
-                        counts["masked_no_alignment"] += 1
-                    else:
-                        counts["masked_missingness"] += 1
-                    continue
+                    if track_indel_adjacent and alt_order and adjacent_indel_flags[idx]:
+                        mask_intervals.add(idx)
+                        masked_total += 1
+                        counts["masked_indel_adjacent"] += 1
+                        continue
 
-                if len(alt_order) > 1 and not args.allow_multiallelic_snps:
-                    mask_intervals.add(idx)
-                    masked_total += 1
-                    counts["masked_multiallelic"] += 1
-                    continue
+                    if missing > allowed_missing:
+                        mask_intervals.add(idx)
+                        masked_total += 1
+                        if has_unaligned[j]:
+                            counts["masked_no_alignment"] += 1
+                        else:
+                            counts["masked_missingness"] += 1
+                        continue
 
-                info = f"NS={len(alleles)};MS={missing}"
-                if not alt_order and allele_set == {ref_base}:
+                    if len(alt_order) > 1 and not allow_multiallelic:
+                        mask_intervals.add(idx)
+                        masked_total += 1
+                        counts["masked_multiallelic"] += 1
+                        continue
+
+                    info = f"NS={ns};MS={missing}"
+                    call_codes = block[:, j].tolist()
+                    if not alt_order and allele_set == {ref_base}:
+                        counts["all_sites"] += 1
+                        counts["invariant"] += 1
+                        retained_total += 1
+                        genotypes = [format_gt(code, alt_order) for code in call_codes]
+                        if add_ref:
+                            genotypes.append("0")
+                        record = (
+                            f"{contig}\t{pos}\t.\t{ref_base}\t.\t.\tPASS\t{info};SC=invariant\tGT\t"
+                            + "\t".join(genotypes)
+                        )
+                        all_sites.write(f"{record}\n")
+                        continue
+
                     counts["all_sites"] += 1
-                    counts["invariant"] += 1
+                    counts["variants"] += 1
                     retained_total += 1
                     genotypes = [format_gt(code, alt_order) for code in call_codes]
-                    if args.add_ref:
+                    if add_ref:
                         genotypes.append("0")
+                    alt_field = ",".join(alt_order)
                     record = (
-                        f"{contig}\t{pos}\t.\t{ref_base}\t.\t.\tPASS\t{info};SC=invariant\tGT\t"
+                        f"{contig}\t{pos}\t.\t{ref_base}\t{alt_field}\t.\tPASS\t{info};SC=variant\tGT\t"
                         + "\t".join(genotypes)
                     )
                     all_sites.write(f"{record}\n")
-                    continue
-
-                counts["all_sites"] += 1
-                counts["variants"] += 1
-                retained_total += 1
-                genotypes = [format_gt(code, alt_order) for code in call_codes]
-                if args.add_ref:
-                    genotypes.append("0")
-                alt_field = ",".join(alt_order)
-                record = (
-                    f"{contig}\t{pos}\t.\t{ref_base}\t{alt_field}\t.\tPASS\t{info};SC=variant\tGT\t"
-                    + "\t".join(genotypes)
-                )
-                all_sites.write(f"{record}\n")
-                variants.write(f"{record}\n")
+                    variants.write(f"{record}\n")
 
         if retained_total + masked_total != contig_len:
             raise ValueError(
@@ -680,12 +714,21 @@ def main() -> None:
         write_lines(mask_path, bed_lines)
 
         for sample, calls in zip(samples, sample_arrays):
-            sample_intervals = IntervalBuilder(contig)
-            for idx in range(len(calls)):
-                code = calls[idx]
-                if code in MISSING_CODES:
-                    sample_intervals.add(idx)
-            write_lines(Path(str(out_prefix) + f".{sample}.missing.bed"), sample_intervals.lines(sample))
+            # Vectorized replacement for a pure-Python O(contig_len) scan: derive
+            # missing-run intervals from a zero-copy uint8 view of the mmap.
+            arr = np.frombuffer(calls, dtype=np.uint8)
+            missing = (arr == 0) | (arr == 5) | (arr == 7)
+            # Run boundaries: pad with False on both ends, then diff. +1 marks a
+            # run start, -1 marks the position just past a run end. This yields
+            # the same merged [start, end) intervals as IntervalBuilder.add.
+            edges = np.diff(np.concatenate(([np.uint8(0)], missing.view(np.uint8), [np.uint8(0)])).astype(np.int8))
+            starts = np.flatnonzero(edges == 1)
+            ends = np.flatnonzero(edges == -1)
+            sample_lines = [
+                f"{contig}\t{int(start)}\t{int(end)}\t{sample}"
+                for start, end in zip(starts, ends)
+            ]
+            write_lines(Path(str(out_prefix) + f".{sample}.missing.bed"), sample_lines)
 
         summary_lines = [
             "metric\tvalue",
@@ -709,6 +752,11 @@ def main() -> None:
         summary_lines.append(f"masked_intervals\t{len(bed_lines)}")
         write_lines(summary_path, summary_lines)
 
+        # Drop every numpy view derived from the mmaps: a live frombuffer view
+        # keeps an exported pointer that would make mmap.close() raise
+        # BufferError.
+        sample_views.clear()
+        arr = missing = edges = None
         for calls in sample_arrays:
             calls.close()
         for call_file in sample_array_files:
