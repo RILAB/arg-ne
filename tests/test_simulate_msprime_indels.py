@@ -17,6 +17,7 @@ from scripts.simulate_msprime_indels import (
     sample_lineage_event,
     scaled_rate,
     summarize_reference_overlaps,
+    write_maf,
 )
 
 
@@ -174,6 +175,31 @@ def test_summarize_reference_overlaps_counts_deleted_bp_and_clean_snps():
     assert indel_bp == 1
     assert total_snps == 1
     assert snps == 0
+
+
+def test_write_maf_uses_sample_src_size(tmp_path: Path):
+    maf = tmp_path / "sample1.maf"
+
+    write_maf(
+        maf,
+        [
+            MafBlock(
+                contig="reference",
+                start0=0,
+                reference_size=4,
+                reference_seq="AC-GT",
+                sample_name="sample1",
+                sample_size=5,
+                sample_seq="ACGGT",
+            )
+        ],
+    )
+
+    sample_line = [
+        line for line in maf.read_text(encoding="utf-8").splitlines()
+        if line.startswith("s sample1")
+    ][0]
+    assert sample_line.split()[5] == "5"
 
 
 def test_scaled_rate_uses_explicit_ne():

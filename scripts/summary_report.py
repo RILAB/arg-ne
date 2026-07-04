@@ -78,12 +78,8 @@ def read_all_sites_stats(
       per_sample_missing_retained_by_contig: contig -> sample -> retained sites where sample is missing (GT=.)
       per_sample_called_by_contig: contig -> sample -> retained sites where sample has a call (ref or alt)
     """
-    invariant: dict[str, list[int]] = {
-        contig: [0] * window_count(length, window_bp) for contig, length in lengths.items()
-    }
-    variant: dict[str, list[int]] = {
-        contig: [0] * window_count(length, window_bp) for contig, length in lengths.items()
-    }
+    invariant: dict[str, list[int]] = {}
+    variant: dict[str, list[int]] = {}
     samples: list[str] = []
     per_sample_variant: dict[str, dict[str, int]] = {}
     per_sample_missing: dict[str, dict[str, int]] = {}
@@ -104,10 +100,16 @@ def read_all_sites_stats(
             if len(parts) < 5:
                 continue
             contig = parts[0]
-            if contig not in invariant:
+            length = lengths.get(contig)
+            if length is None:
                 continue
+            if contig not in invariant:
+                invariant[contig] = [0] * window_count(length, window_bp)
+                variant[contig] = [0] * window_count(length, window_bp)
             pos = int(parts[1])
             idx = max((pos - 1) // window_bp, 0)
+            if idx >= len(invariant[contig]):
+                continue
             is_variant = parts[4] != "."
             if is_variant:
                 variant[contig][idx] += 1
@@ -119,7 +121,7 @@ def read_all_sites_stats(
                 sm = per_sample_missing.setdefault(contig, {s: 0 for s in samples})
                 sc = per_sample_called.setdefault(contig, {s: 0 for s in samples})
                 for s_idx, sample in enumerate(samples):
-                    gt = parts[9 + s_idx]
+                    gt = parts[9 + s_idx].split(":", 1)[0]
                     if gt == ".":
                         sm[sample] += 1
                     else:
@@ -143,7 +145,7 @@ def read_sample_missing_bp(
     # Sort samples by length desc so longer names match first (avoids a sample
     # name being a suffix of another's).
     ordered = sorted(samples, key=len, reverse=True)
-    data: dict[str, dict[str, int]] = {s: {} for s in samples}
+    data: dict[str, dict[str, int]] = {}
     for bed_path in bed_paths:
         name = bed_path.name
         matched = None
@@ -153,6 +155,7 @@ def read_sample_missing_bp(
                 break
         if matched is None:
             continue
+        data.setdefault(matched, {})
         with bed_path.open("r", encoding="utf-8") as handle:
             for line in handle:
                 if not line.strip() or line.startswith("#"):
@@ -176,9 +179,7 @@ def read_mask_percentages(
     lengths: dict[str, int],
     window_bp: int,
 ) -> dict[str, list[int]]:
-    masked: dict[str, list[int]] = {
-        contig: [0] * window_count(length, window_bp) for contig, length in lengths.items()
-    }
+    masked: dict[str, list[int]] = {}
     with path.open("r", encoding="utf-8") as handle:
         for line in handle:
             if not line.strip() or line.startswith("#"):
@@ -187,14 +188,19 @@ def read_mask_percentages(
             if len(parts) < 3:
                 continue
             contig = parts[0]
-            if contig not in masked:
+            length = lengths.get(contig)
+            if length is None:
                 continue
+            if contig not in masked:
+                masked[contig] = [0] * window_count(length, window_bp)
             start = int(parts[1])
             end = int(parts[2])
             pos = start
             while pos < end:
                 idx = pos // window_bp
-                window_end = min((idx + 1) * window_bp, lengths[contig])
+                if idx >= len(masked[contig]):
+                    break
+                window_end = min((idx + 1) * window_bp, length)
                 span_end = min(end, window_end)
                 masked[contig][idx] += max(span_end - pos, 0)
                 pos = span_end

@@ -10,6 +10,7 @@ slurm-*.out
 *.snakemake.log
 AGENTS.md
 tests/__pycache__/
+trash/
 !example_data/ind1.maf.gz
 !example_data/ind2.maf.gz
 !example_data/ind3.maf.gz

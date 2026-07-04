@@ -56,11 +56,14 @@ fi
 # Make snakemake available. On the farm cluster it lives in a conda env; this
 # block is best-effort and portable: if snakemake is already on PATH it does
 # nothing. Set ARGPREP_CONDA_ENV to force a specific env, or rely on an
-# environment.yml `name:` field if one is present.
+# argprep.yml / environment.yml `name:` field if one is present.
 if ! command -v snakemake >/dev/null 2>&1; then
     source /etc/profile.d/modules.sh 2>/dev/null || true
     module load conda 2>/dev/null || true
     env_name="${ARGPREP_CONDA_ENV:-}"
+    if [[ -z "$env_name" && -f argprep.yml ]]; then
+        env_name="$(awk -F': *' '/^name:/{print $2; exit}' argprep.yml)"
+    fi
     if [[ -z "$env_name" && -f environment.yml ]]; then
         env_name="$(awk -F': *' '/^name:/{print $2; exit}' environment.yml)"
     fi

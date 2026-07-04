@@ -1,4 +1,5 @@
 import sys
+import shlex
 from pathlib import Path
 
 from snakemake.io import glob_wildcards
@@ -60,6 +61,8 @@ if QUALITY_MIN not in (None, ""):
     QUALITY_MIN = float(QUALITY_MIN)
     if not 0 <= QUALITY_MIN <= 1:
         raise ValueError(f"quality_min must be between 0 and 1; got {QUALITY_MIN}")
+    if QUALITY_BED_DIR is None:
+        raise ValueError("quality_min is set but quality_bed_dir is missing; set both or neither.")
 elif QUALITY_BED_DIR is not None:
     raise ValueError("quality_bed_dir is set but quality_min is missing; set both or neither.")
 else:
@@ -76,6 +79,7 @@ if SUMMARY_WINDOW_BP <= 0:
 
 DIRECT_REF_FASTA = RESULTS_DIR / "refs" / "reference_sites.fa"
 REF_FAI = str(DIRECT_REF_FASTA) + ".fai"
+MAF_CHUNK_ROOT = RESULTS_DIR / "maf_by_contig"
 
 def _maf_path_for_sample(sample: str) -> Path:
     maf = MAF_DIR / f"{sample}.maf"
@@ -263,6 +267,14 @@ def _direct_sample_missing_mask_out(contig, sample):
     return RESULTS_DIR / "sites" / f"combined.{contig}.{sample}.missing.bed"
 
 
+def _split_sample_dir(sample):
+    return MAF_CHUNK_ROOT / sample
+
+
+def _split_sample_contig_maf(sample, contig):
+    return _split_sample_dir(sample) / f"{contig}.maf"
+
+
 def _all_targets(_wc):
     contigs = _active_contigs()
     return (
@@ -303,13 +315,33 @@ checkpoint index_reference:
         """
 
 
+rule split_sample_maf:
+    input:
+        maf=lambda wc: _maf_input(wc.sample),
+        fai=REF_FAI,
+    output:
+        chunks=directory(str(MAF_CHUNK_ROOT / "{sample}")),
+    params:
+        out_root=str(MAF_CHUNK_ROOT),
+        contigs=lambda wc: " ".join(shlex.quote(contig) for contig in _active_contigs()),
+    shell:
+        """
+        set -euo pipefail
+        python "{workflow.basedir}/scripts/split_maf_by_contig.py" \
+          --maf "{input.maf}" \
+          --sample "{wildcards.sample}" \
+          --out-root "{params.out_root}" \
+          --contigs {params.contigs}
+        """
+
+
 rule direct_maf_sites:
     threads: int(config.get("maf_threads", DEFAULT_THREADS))
     resources:
         mem_mb=int(config.get("maf_mem_mb", DEFAULT_MEM_MB)),
         time=str(config.get("maf_time", DEFAULT_TIME))
     input:
-        mafs=lambda wc: [_maf_input(sample) for sample in SAMPLES],
+        mafs=lambda wc: [str(_split_sample_dir(sample)) for sample in SAMPLES],
         ref=str(DIRECT_REF_FASTA),
         fai=REF_FAI,
         quality_beds=lambda wc: _quality_bed_inputs(),
@@ -324,7 +356,11 @@ rule direct_maf_sites:
         ),
     params:
         maf_dir=str(MAF_DIR),
-        samples=" ".join(SAMPLES),
+        maf_paths=lambda wc: " ".join(
+            shlex.quote(f"{sample}={_split_sample_contig_maf(sample, wc.contig)}")
+            for sample in SAMPLES
+        ),
+        samples=" ".join(shlex.quote(sample) for sample in SAMPLES),
         max_missing_count=(
             None if MAX_MISSING_COUNT in (None, "") else int(MAX_MISSING_COUNT)
         ),
@@ -348,6 +384,7 @@ rule direct_maf_sites:
           --reference-fasta "{input.ref}"
           --contig "{wildcards.contig}"
           --out-prefix "{params.out_prefix}"
+          --maf-paths {params.maf_paths}
           --samples {params.samples})
         if [ "{params.max_missing_count}" != "None" ]; then
           cmd+=(--max-missing-count "{params.max_missing_count}")

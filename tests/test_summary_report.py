@@ -105,11 +105,11 @@ def test_summary_report_per_maf_section(tmp_path: Path):
     all_sites = tmp_path / "combined.chr1.all_sites.vcf"
     all_sites.write_text(
         "##fileformat=VCFv4.2\n"
-        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2\n"
-        "chr1\t1\t.\tA\t.\t.\tPASS\tNS=2;MS=0;SC=invariant\tGT\t0\t0\n"
-        "chr1\t2\t.\tC\tT\t.\tPASS\tNS=2;MS=0;SC=variant\tGT\t1\t0\n"
-        "chr1\t3\t.\tG\tA\t.\tPASS\tNS=2;MS=0;SC=variant\tGT\t1\t1\n"
-        "chr1\t5\t.\tG\t.\t.\tPASS\tNS=1;MS=1;SC=invariant\tGT\t0\t.\n",
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2\tREF\n"
+        "chr1\t1\t.\tA\t.\t.\tPASS\tNS=2;MS=0;SC=invariant\tGT:DP\t0:4\t0:4\t0:4\n"
+        "chr1\t2\t.\tC\tT\t.\tPASS\tNS=2;MS=0;SC=variant\tGT:DP\t1:3\t0:3\t0:3\n"
+        "chr1\t3\t.\tG\tA\t.\tPASS\tNS=2;MS=0;SC=variant\tGT:DP\t1:3\t1:3\t0:3\n"
+        "chr1\t5\t.\tG\t.\t.\tPASS\tNS=1;MS=1;SC=invariant\tGT:DP\t0:3\t.:0\t0:3\n",
         encoding="utf-8",
     )
 
@@ -164,3 +164,4 @@ def test_summary_report_per_maf_section(tmp_path: Path):
     # s2: 5 missing bp, 1 variant carried (position 3), 3 called sites (pos 5 is missing in retained)
     assert "<td>s1</td><td>2</td><td>20.0%</td><td>4</td><td>2</td>" in html
     assert "<td>s2</td><td>5</td><td>50.0%</td><td>3</td><td>1</td>" in html
+    assert "<td>REF</td>" not in html

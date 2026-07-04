@@ -111,6 +111,7 @@ snakemake -j 8 --configfile options.yaml
 SLURM (recommended — submit the controller as its own job):
 
 ```bash
+mkdir -p logs/slurm
 sbatch profiles/slurm/run-controller.sbatch options.yaml
 # watch progress:
 tail -f logs/slurm/controller-<jobid>.out
@@ -120,6 +121,9 @@ This runs the long-lived Snakemake controller as a SLURM job on a
 **non-preemptable** partition and lets it submit the per-rule jobs. The
 controller must outlive every rule job, so it should never run on a preemptable
 queue. The wrapper always passes `--rerun-incomplete`.
+Submit from the activated `argprep` conda environment, or set
+`ARGPREP_CONDA_ENV=argprep` so the wrapper can activate it for the controller
+job.
 
 The two cluster-specific values in `run-controller.sbatch` are
 `--partition=high` and `--account=jrigrp` (the UCD farm defaults). Override them

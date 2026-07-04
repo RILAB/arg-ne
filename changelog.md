@@ -1,6 +1,6 @@
 # Changelog
 
-Versions are git tags; check out the most recent (e.g. `git checkout v1.5`).
+Versions are git tags; check out the most recent (e.g. `git checkout v1.6`).
 v1.0 was a full rewrite from the legacy TASSEL/gVCF/GATK pipeline — the
 pre-v1.0 (`v0.x`) entries at the bottom describe that older lineage and do not
 carry forward to the v1.x series.

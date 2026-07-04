@@ -10,10 +10,13 @@ from scripts.maf_to_sites import (
     discover_samples,
     load_quality_mask,
     maf_path_for_sample,
+    maf_path_for_sample_with_map,
     missing_threshold,
+    parse_maf_path_map,
     read_contig_sequence,
     summarize_site_and_mask_coverage,
 )
+from scripts.split_maf_by_contig import main as split_maf_main
 
 
 def _run(cmd, cwd):
@@ -633,6 +636,63 @@ def test_maf_path_for_sample_raises_for_missing_sample(tmp_path: Path) -> None:
         maf_path_for_sample(maf_dir, "sample1")
 
 
+def test_parse_maf_path_map_overrides_sample_paths(tmp_path: Path) -> None:
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    fallback = maf_dir / "sample1.maf"
+    fallback.write_text("", encoding="utf-8")
+    sample2 = maf_dir / "sample2.maf"
+    sample2.write_text("", encoding="utf-8")
+    chunk = tmp_path / "chunks" / "sample1" / "chr1.maf"
+    chunk.parent.mkdir(parents=True)
+    chunk.write_text("", encoding="utf-8")
+
+    paths = parse_maf_path_map([f"sample1={chunk}"])
+
+    assert maf_path_for_sample_with_map(maf_dir, "sample1", paths) == chunk
+    assert maf_path_for_sample_with_map(maf_dir, "sample2", paths) == sample2
+
+
+def test_split_maf_by_contig_writes_only_requested_chunks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    maf = tmp_path / "sample1.maf"
+    maf.write_text(
+        "##maf version=1\n"
+        "a score=0\n"
+        "s chr1 0 2 + 2 AC\n"
+        "s sample1 0 2 + 2 AT\n"
+        "\n"
+        "a score=0\n"
+        "s chr2 0 2 + 2 GG\n"
+        "s sample1 0 2 + 2 GA\n"
+        "\n"
+        "a score=0\n"
+        "s chr3 0 2 + 2 TT\n"
+        "s sample1 0 2 + 2 TC\n",
+        encoding="utf-8",
+    )
+    out_root = tmp_path / "chunks"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "split_maf_by_contig.py",
+            "--maf", str(maf),
+            "--sample", "sample1",
+            "--out-root", str(out_root),
+            "--contigs", "1", "chr2",
+        ],
+    )
+    split_maf_main()
+
+    chr1 = out_root / "sample1" / "1.maf"
+    chr2 = out_root / "sample1" / "chr2.maf"
+    assert "s chr1 0 2 + 2 AC" in chr1.read_text(encoding="utf-8")
+    assert "s chr2 0 2 + 2 GG" in chr2.read_text(encoding="utf-8")
+    assert "chr3" not in chr1.read_text(encoding="utf-8")
+    assert "chr3" not in chr2.read_text(encoding="utf-8")
+
+
 def test_read_contig_sequence_raises_when_contig_is_missing(tmp_path: Path) -> None:
     ref = tmp_path / "ref.fa"
     ref.write_text(">chr1\nACGT\n", encoding="utf-8")
@@ -784,3 +844,31 @@ def test_quality_mask_requires_quality_min(tmp_path: Path):
     )
     assert proc.returncode != 0
     assert "--quality-bed-dir requires --quality-min" in proc.stderr
+
+
+def test_quality_min_requires_quality_bed_dir(tmp_path: Path):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\nAC\n", encoding="utf-8")
+    (tmp_path / "ref.fa.fai").write_text("chr1\t2\t6\t2\t3\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "chr1", "AC", "s1", "AC")
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(Path("scripts") / "maf_to_sites.py"),
+            "--maf-dir", str(maf_dir),
+            "--reference-fasta", str(ref),
+            "--contig", "chr1",
+            "--out-prefix", str(tmp_path / "results" / "combined.chr1"),
+            "--samples", "s1",
+            "--quality-min", "0.9",
+        ],
+        cwd=Path.cwd(),
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode != 0
+    assert "--quality-min requires --quality-bed-dir" in proc.stderr

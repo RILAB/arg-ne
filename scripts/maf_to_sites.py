@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import argparse
 import bisect
+import mmap
 import sys
+import tempfile
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -129,6 +131,13 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--contig", required=True, help="Reference contig to process")
     ap.add_argument("--out-prefix", required=True, help="Output prefix for this contig")
     ap.add_argument(
+        "--maf-paths",
+        nargs="*",
+        default=None,
+        metavar="SAMPLE=PATH",
+        help="Explicit per-sample MAF paths; overrides --maf-dir for listed samples.",
+    )
+    ap.add_argument(
         "--samples",
         nargs="*",
         default=None,
@@ -186,6 +195,28 @@ def maf_path_for_sample(maf_dir: Path, sample: str) -> Path:
     if gz.exists():
         return gz
     raise FileNotFoundError(f"Missing MAF for sample '{sample}' under {maf_dir}")
+
+
+def parse_maf_path_map(values: list[str] | None) -> dict[str, Path]:
+    paths: dict[str, Path] = {}
+    for value in values or []:
+        if "=" not in value:
+            raise ValueError(f"Invalid --maf-paths entry {value!r}; expected SAMPLE=PATH")
+        sample, path = value.split("=", 1)
+        if not sample:
+            raise ValueError(f"Invalid --maf-paths entry {value!r}; sample is empty")
+        paths[sample] = Path(path)
+    return paths
+
+
+def maf_path_for_sample_with_map(
+    maf_dir: Path,
+    sample: str,
+    maf_paths: dict[str, Path],
+) -> Path:
+    if sample in maf_paths:
+        return maf_paths[sample]
+    return maf_path_for_sample(maf_dir, sample)
 
 
 def _read_fai_entry(fai_path: Path, contig: str) -> tuple[int, int, int, int] | None:
@@ -415,6 +446,30 @@ def intervals_from_positions(contig: str, masked_positions: list[int]) -> list[t
     return [(contig, start, end) for start, end in merged]
 
 
+class IntervalBuilder:
+    def __init__(self, contig: str):
+        self.contig = contig
+        self.intervals: list[tuple[int, int]] = []
+
+    def add(self, pos: int) -> None:
+        if self.intervals and self.intervals[-1][1] == pos:
+            start, _end = self.intervals[-1]
+            self.intervals[-1] = (start, pos + 1)
+        else:
+            self.intervals.append((pos, pos + 1))
+
+    def lines(self, sample: str | None = None) -> list[str]:
+        if sample is None:
+            return [
+                f"{self.contig}\t{start}\t{end}"
+                for start, end in self.intervals
+            ]
+        return [
+            f"{self.contig}\t{start}\t{end}\t{sample}"
+            for start, end in self.intervals
+        ]
+
+
 def summarize_site_and_mask_coverage(
     contig: str,
     contig_len: int,
@@ -459,6 +514,7 @@ def summarize_site_and_mask_coverage(
 def main() -> None:
     args = parse_args()
     maf_dir = Path(args.maf_dir)
+    maf_paths = parse_maf_path_map(args.maf_paths)
     reference_fasta = Path(args.reference_fasta)
     contig = args.contig
     out_prefix = Path(args.out_prefix)
@@ -474,169 +530,189 @@ def main() -> None:
         if not 0 <= args.quality_min <= 1:
             raise ValueError("--quality-min must be between 0 and 1")
         quality_bed_dir = Path(args.quality_bed_dir)
+    elif args.quality_min is not None:
+        raise ValueError("--quality-min requires --quality-bed-dir")
 
     contig_seq = read_contig_sequence(reference_fasta, contig)
     contig_len = len(contig_seq)
-    sample_arrays: list[bytearray] = []
-    adjacent_indel_flags = bytearray(contig_len)
+    with tempfile.TemporaryDirectory(prefix="argprep-calls-") as call_tmp_dir:
+        sample_arrays: list[mmap.mmap] = []
+        sample_array_files = []
+        adjacent_indel_flags = bytearray(contig_len)
 
-    for sample in samples:
-        quality_mask: QualityMask | None = None
-        if quality_bed_dir is not None:
-            bed_path = quality_bed_for_sample(quality_bed_dir, sample)
-            if bed_path is not None:
-                quality_mask = load_quality_mask(bed_path, args.quality_min)
-        calls, sample_adjacent_indels = load_sample_calls(
-            maf_path_for_sample(maf_dir, sample),
-            contig,
-            contig_len,
-            quality_mask,
+        for sample in samples:
+            quality_mask: QualityMask | None = None
+            if quality_bed_dir is not None:
+                bed_path = quality_bed_for_sample(quality_bed_dir, sample)
+                if bed_path is not None:
+                    quality_mask = load_quality_mask(bed_path, args.quality_min)
+            calls, sample_adjacent_indels = load_sample_calls(
+                maf_path_for_sample_with_map(maf_dir, sample, maf_paths),
+                contig,
+                contig_len,
+                quality_mask,
+            )
+            call_file = tempfile.TemporaryFile(dir=call_tmp_dir)
+            call_file.write(calls)
+            call_file.flush()
+            sample_arrays.append(
+                mmap.mmap(call_file.fileno(), contig_len, access=mmap.ACCESS_READ)
+            )
+            sample_array_files.append(call_file)
+            del calls
+            for i in range(len(sample_adjacent_indels)):
+                adjacent_indel_flags[i] |= sample_adjacent_indels[i]
+
+        allowed_missing = missing_threshold(
+            len(samples),
+            args.max_missing_count,
+            args.max_missing_fraction,
         )
-        sample_arrays.append(calls)
-        for i in range(len(sample_adjacent_indels)):
-            adjacent_indel_flags[i] |= sample_adjacent_indels[i]
 
-    allowed_missing = missing_threshold(
-        len(samples),
-        args.max_missing_count,
-        args.max_missing_fraction,
-    )
+        all_sites_path = out_prefix.with_suffix(out_prefix.suffix + ".all_sites.vcf")
+        variants_path = out_prefix.with_suffix(out_prefix.suffix + ".vcf")
+        mask_path = out_prefix.with_suffix(out_prefix.suffix + ".mask.bed")
+        summary_path = out_prefix.with_suffix(out_prefix.suffix + ".site_summary.tsv")
 
-    all_sites_path = out_prefix.with_suffix(out_prefix.suffix + ".all_sites.vcf")
-    variants_path = out_prefix.with_suffix(out_prefix.suffix + ".vcf")
-    mask_path = out_prefix.with_suffix(out_prefix.suffix + ".mask.bed")
-    summary_path = out_prefix.with_suffix(out_prefix.suffix + ".site_summary.tsv")
+        all_sites_path.parent.mkdir(parents=True, exist_ok=True)
+        with open_text(all_sites_path, "wt") as all_sites, open_text(variants_path, "wt") as variants:
+            for line in vcf_header(contig, contig_len, output_samples):
+                all_sites.write(f"{line}\n")
+                variants.write(f"{line}\n")
 
-    all_sites_path.parent.mkdir(parents=True, exist_ok=True)
-    with open_text(all_sites_path, "wt") as all_sites, open_text(variants_path, "wt") as variants:
-        for line in vcf_header(contig, contig_len, output_samples):
-            all_sites.write(f"{line}\n")
-            variants.write(f"{line}\n")
+            mask_intervals = IntervalBuilder(contig)
+            masked_total = 0
+            retained_total = 0
+            counts: Counter[str] = Counter()
 
-        masked_positions: list[int] = []
-        retained_positions: list[int] = []
-        counts: Counter[str] = Counter()
-
-        for idx, ref_base in enumerate(contig_seq):
-            pos = idx + 1
-            if ref_base not in VALID_BASES:
-                masked_positions.append(idx)
-                counts["masked_ref_non_acgt"] += 1
-                continue
-
-            alleles: list[str] = []
-            allele_set: set[str] = set()
-            missing = 0
-            call_codes: list[int] = []
-            has_unaligned_sample = False
-            for calls in sample_arrays:
-                code = calls[idx]
-                call_codes.append(code)
-                if code == 0:
-                    has_unaligned_sample = True
-                if code in MISSING_CODES:
-                    missing += 1
+            for idx, ref_base in enumerate(contig_seq):
+                pos = idx + 1
+                if ref_base not in VALID_BASES:
+                    mask_intervals.add(idx)
+                    masked_total += 1
+                    counts["masked_ref_non_acgt"] += 1
                     continue
-                base = CODE_TO_BASE[code]
-                alleles.append(base)
-                allele_set.add(base)
 
-            if not alleles:
-                masked_positions.append(idx)
-                if has_unaligned_sample:
-                    counts["masked_no_alignment"] += 1
-                else:
-                    counts["masked_missingness"] += 1
-                continue
+                alleles: list[str] = []
+                allele_set: set[str] = set()
+                missing = 0
+                call_codes: list[int] = []
+                has_unaligned_sample = False
+                for calls in sample_arrays:
+                    code = calls[idx]
+                    call_codes.append(code)
+                    if code == 0:
+                        has_unaligned_sample = True
+                    if code in MISSING_CODES:
+                        missing += 1
+                        continue
+                    base = CODE_TO_BASE[code]
+                    alleles.append(base)
+                    allele_set.add(base)
 
-            alt_order = sorted(a for a in allele_set if a != ref_base)
+                if not alleles:
+                    mask_intervals.add(idx)
+                    masked_total += 1
+                    if has_unaligned_sample:
+                        counts["masked_no_alignment"] += 1
+                    else:
+                        counts["masked_missingness"] += 1
+                    continue
 
-            if args.mask_indel_adjacent_snps and alt_order and adjacent_indel_flags[idx]:
-                masked_positions.append(idx)
-                counts["masked_indel_adjacent"] += 1
-                continue
+                alt_order = sorted(a for a in allele_set if a != ref_base)
 
-            if missing > allowed_missing:
-                masked_positions.append(idx)
-                if has_unaligned_sample:
-                    counts["masked_no_alignment"] += 1
-                else:
-                    counts["masked_missingness"] += 1
-                continue
+                if args.mask_indel_adjacent_snps and alt_order and adjacent_indel_flags[idx]:
+                    mask_intervals.add(idx)
+                    masked_total += 1
+                    counts["masked_indel_adjacent"] += 1
+                    continue
 
-            if len(alt_order) > 1 and not args.allow_multiallelic_snps:
-                masked_positions.append(idx)
-                counts["masked_multiallelic"] += 1
-                continue
+                if missing > allowed_missing:
+                    mask_intervals.add(idx)
+                    masked_total += 1
+                    if has_unaligned_sample:
+                        counts["masked_no_alignment"] += 1
+                    else:
+                        counts["masked_missingness"] += 1
+                    continue
 
-            info = f"NS={len(alleles)};MS={missing}"
-            if not alt_order and allele_set == {ref_base}:
+                if len(alt_order) > 1 and not args.allow_multiallelic_snps:
+                    mask_intervals.add(idx)
+                    masked_total += 1
+                    counts["masked_multiallelic"] += 1
+                    continue
+
+                info = f"NS={len(alleles)};MS={missing}"
+                if not alt_order and allele_set == {ref_base}:
+                    counts["all_sites"] += 1
+                    counts["invariant"] += 1
+                    retained_total += 1
+                    genotypes = [format_gt(code, alt_order) for code in call_codes]
+                    if args.add_ref:
+                        genotypes.append("0")
+                    record = (
+                        f"{contig}\t{pos}\t.\t{ref_base}\t.\t.\tPASS\t{info};SC=invariant\tGT\t"
+                        + "\t".join(genotypes)
+                    )
+                    all_sites.write(f"{record}\n")
+                    continue
+
                 counts["all_sites"] += 1
-                counts["invariant"] += 1
-                retained_positions.append(idx)
+                counts["variants"] += 1
+                retained_total += 1
                 genotypes = [format_gt(code, alt_order) for code in call_codes]
                 if args.add_ref:
                     genotypes.append("0")
+                alt_field = ",".join(alt_order)
                 record = (
-                    f"{contig}\t{pos}\t.\t{ref_base}\t.\t.\tPASS\t{info};SC=invariant\tGT\t"
+                    f"{contig}\t{pos}\t.\t{ref_base}\t{alt_field}\t.\tPASS\t{info};SC=variant\tGT\t"
                     + "\t".join(genotypes)
                 )
                 all_sites.write(f"{record}\n")
-                continue
+                variants.write(f"{record}\n")
 
-            counts["all_sites"] += 1
-            counts["variants"] += 1
-            retained_positions.append(idx)
-            genotypes = [format_gt(code, alt_order) for code in call_codes]
-            if args.add_ref:
-                genotypes.append("0")
-            alt_field = ",".join(alt_order)
-            record = (
-                f"{contig}\t{pos}\t.\t{ref_base}\t{alt_field}\t.\tPASS\t{info};SC=variant\tGT\t"
-                + "\t".join(genotypes)
+        if retained_total + masked_total != contig_len:
+            raise ValueError(
+                f"coverage mismatch for {contig}: union={retained_total + masked_total}, chrom_len={contig_len}"
             )
-            all_sites.write(f"{record}\n")
-            variants.write(f"{record}\n")
 
-    bed_lines = [f"{chrom}\t{start}\t{end}" for chrom, start, end in intervals_from_positions(contig, masked_positions)]
-    write_lines(mask_path, bed_lines)
+        bed_lines = mask_intervals.lines()
+        write_lines(mask_path, bed_lines)
 
-    for sample, calls in zip(samples, sample_arrays):
-        missing_pos = [idx for idx, code in enumerate(calls) if code in MISSING_CODES]
-        sample_bed_lines = [
-            f"{chrom}\t{start}\t{end}\t{sample}"
-            for chrom, start, end in intervals_from_positions(contig, missing_pos)
+        for sample, calls in zip(samples, sample_arrays):
+            sample_intervals = IntervalBuilder(contig)
+            for idx in range(len(calls)):
+                code = calls[idx]
+                if code in MISSING_CODES:
+                    sample_intervals.add(idx)
+            write_lines(Path(str(out_prefix) + f".{sample}.missing.bed"), sample_intervals.lines(sample))
+
+        summary_lines = [
+            "metric\tvalue",
+            f"contig\t{contig}",
+            f"contig_length\t{contig_len}",
+            f"samples\t{len(samples)}",
+            f"allowed_missing\t{allowed_missing}",
         ]
-        write_lines(Path(str(out_prefix) + f".{sample}.missing.bed"), sample_bed_lines)
+        for key in (
+            "all_sites",
+            "variants",
+            "invariant",
+            "masked_missingness",
+            "masked_indel_adjacent",
+            "masked_multiallelic",
+            "masked_no_alignment",
+            "masked_ref_non_acgt",
+        ):
+            summary_lines.append(f"{key}\t{counts.get(key, 0)}")
+        summary_lines.append(f"masked_total\t{masked_total}")
+        summary_lines.append(f"masked_intervals\t{len(bed_lines)}")
+        write_lines(summary_path, summary_lines)
 
-    summarize_site_and_mask_coverage(
-        contig,
-        contig_len,
-        retained_positions,
-        masked_positions,
-    )
-
-    summary_lines = [
-        "metric\tvalue",
-        f"contig\t{contig}",
-        f"contig_length\t{contig_len}",
-        f"samples\t{len(samples)}",
-        f"allowed_missing\t{allowed_missing}",
-    ]
-    for key in (
-        "all_sites",
-        "variants",
-        "invariant",
-        "masked_missingness",
-        "masked_indel_adjacent",
-        "masked_multiallelic",
-        "masked_no_alignment",
-        "masked_ref_non_acgt",
-    ):
-        summary_lines.append(f"{key}\t{counts.get(key, 0)}")
-    summary_lines.append(f"masked_total\t{len(masked_positions)}")
-    summary_lines.append(f"masked_intervals\t{len(bed_lines)}")
-    write_lines(summary_path, summary_lines)
+        for calls in sample_arrays:
+            calls.close()
+        for call_file in sample_array_files:
+            call_file.close()
 
 
 if __name__ == "__main__":

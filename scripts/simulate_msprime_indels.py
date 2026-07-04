@@ -139,7 +139,7 @@ def write_maf(path: Path, blocks: list[MafBlock]) -> None:
                 f"s {block.contig} {block.start0} {block.reference_size} + {block.reference_size} {block.reference_seq}\n"
             )
             handle.write(
-                f"s {block.sample_name} {block.start0} {block.sample_size} + {block.reference_size} {block.sample_seq}\n"
+                f"s {block.sample_name} {block.start0} {block.sample_size} + {block.sample_size} {block.sample_seq}\n"
             )
 
 
@@ -496,9 +496,12 @@ def main() -> None:
     sample_records: list[tuple[str, str]] = []
     all_events: list[IndelEvent] = []
     per_sample_events: dict[str, list[IndelEvent]] = defaultdict(list)
-    maf_blocks: list[MafBlock] = []
+    proposed_by_sample: dict[str, list[IndelEvent]] = defaultdict(list)
+    for event in proposed_events:
+        proposed_by_sample[event.sample].append(event)
+    maf_blocks_by_sample: dict[str, list[MafBlock]] = defaultdict(list)
     for sample_name, haplotype in zip(sample_names, haplotypes, strict=True):
-        sample_events = [event for event in proposed_events if event.sample == sample_name]
+        sample_events = proposed_by_sample.get(sample_name, [])
         applied_events = canonicalize_sample_events(haplotype, sample_events)
         sequence_with_indels, sample_maf_blocks = align_sample_to_reference(
             reference=reference,
@@ -509,13 +512,17 @@ def main() -> None:
         sample_records.append((sample_name, sequence_with_indels))
         all_events.extend(applied_events)
         per_sample_events[sample_name].extend(applied_events)
-        maf_blocks.extend(sample_maf_blocks)
+        maf_blocks_by_sample[sample_name].extend(sample_maf_blocks)
 
     write_fasta(ref_out, [("reference", reference)])
     write_fasta(samples_out, sample_records)
     write_indel_table(indels_out, all_events)
     indel_bp, total_snps, snps_without_indels = summarize_reference_overlaps(
-        maf_blocks=maf_blocks,
+        maf_blocks=[
+            block
+            for sample_name in sample_names
+            for block in maf_blocks_by_sample[sample_name]
+        ],
     )
     write_summary(
         summary_out,
@@ -526,8 +533,7 @@ def main() -> None:
         snps_without_indels=snps_without_indels,
     )
     for sample_name in sample_names:
-        sample_blocks = [block for block in maf_blocks if block.sample_name == sample_name]
-        write_maf(maf_dir / f"{sample_name}.maf", sample_blocks)
+        write_maf(maf_dir / f"{sample_name}.maf", maf_blocks_by_sample[sample_name])
 
 
 if __name__ == "__main__":

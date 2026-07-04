@@ -37,6 +37,7 @@ def _run_snakemake(tmp_path: Path, config: Path | None, *targets: str) -> subpro
     env = os.environ.copy()
     env_bin = str(Path(sys.executable).parent)
     env["PATH"] = env_bin + os.pathsep + env.get("PATH", "")
+    env["XDG_CACHE_HOME"] = str(tmp_path / ".cache")
     return subprocess.run(
         cmd,
         cwd=repo_root,
@@ -83,6 +84,8 @@ def test_workflow_remaps_requested_contigs_to_reference_names(tmp_path: Path) ->
 
     all_sites = tmp_path / "results" / "sites" / "combined.1.all_sites.vcf"
     assert all_sites.exists()
+    assert (tmp_path / "results" / "maf_by_contig" / "s1" / "1.maf").exists()
+    assert (tmp_path / "results" / "maf_by_contig" / "s2" / "1.maf").exists()
     assert not (tmp_path / "results" / "sites" / "combined.chr01.all_sites.vcf").exists()
 
     records = [
@@ -223,6 +226,43 @@ def test_workflow_add_ref_appends_reference_sample_to_final_vcfs(tmp_path: Path)
     assert all_records[0][9:] == ["0", "0", "0"]
     assert all_records[1][9:] == ["0", "1", "0"]
     assert variant_records[0][9:] == ["0", "1", "0"]
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("snakemake") is None,
+    reason="snakemake is not installed in the test environment",
+)
+def test_workflow_handles_sample_names_with_spaces(tmp_path: Path) -> None:
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">1\nAC\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "sample one.maf", "1", "AC", "sample_one", "AT")
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "\n".join(
+            [
+                "maf_dir: maf",
+                "reference_fasta: ref.fa",
+                "results_dir: results",
+                'samples: ["sample one"]',
+                "max_missing_count: 0",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_snakemake(tmp_path, config, str(tmp_path / "results" / "summary.html"))
+    assert result.returncode == 0, result.stderr
+
+    all_sites = tmp_path / "results" / "sites" / "combined.1.all_sites.vcf"
+    assert next(
+        line for line in all_sites.read_text(encoding="utf-8").splitlines()
+        if line.startswith("#CHROM\t")
+    ).endswith("\tsample one")
 
 
 @pytest.mark.skipif(
