@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Build a reference-anchored FASTA alignment for a single window from
-combined.<contig>.all_sites.vcf + per-sample missing BEDs.
+"""Standalone (non-workflow) helper: build a reference-anchored FASTA alignment
+for a single window from combined.<contig>.all_sites.vcf + per-sample missing
+BEDs.
 
 Usage:
     python scripts/window_to_fasta.py \\
-        --vcf admix_results/sites/combined.10.all_sites.vcf \\
-        --bed-dir admix_results/sites \\
-        --reference admix/b73.fa \\
-        --contig 10 --start 96300001 --end 96400000 \\
-        --out admix_results/window_chr10_96.3-96.4Mb.fa
+        --vcf results/sites/combined.<contig>.all_sites.vcf \\
+        --bed-dir results/sites \\
+        --reference /path/to/reference.fa \\
+        --contig <contig> --start <start> --end <end> \\
+        --out window.fa
 """
 
 from __future__ import annotations
@@ -80,6 +81,7 @@ def main() -> None:
     ap.add_argument("--start", type=int, required=True, help="1-based inclusive")
     ap.add_argument("--end", type=int, required=True, help="1-based inclusive")
     ap.add_argument("--bed-prefix", default="combined")
+    ap.add_argument("--ref-name", default="REF", help="Name used for the reference sequence header")
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args()
 
@@ -115,7 +117,7 @@ def main() -> None:
         apply_missing_bed(bed, out_seqs[s], args.contig, args.start, args.end)
 
     with open(args.out, "w") as fh:
-        fh.write(f">B73 {args.contig}:{args.start}-{args.end}\n")
+        fh.write(f">{args.ref_name} {args.contig}:{args.start}-{args.end}\n")
         s = ref_seq
         for i in range(0, len(s), 80):
             fh.write(s[i:i + 80] + "\n")

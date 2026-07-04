@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
-"""Remake the chromosome-1 line plot from admix_results/summary.html showing
-only the Variable (%) series, with an auto-scaled y-axis.
+"""Standalone (non-workflow) helper: remake the chromosome-1 line plot from a
+run's summary.html showing only the Variable (%) series, with an auto-scaled
+y-axis.
 
 The variable-site percentages are recovered directly from the orange polyline
 already rendered in summary.html (no need to rescan the multi-GB all_sites VCF).
 The original plot locks the y-axis to 0-100%, which flattens the variable line
 near the bottom; here we auto-scale so the signal is visible.
+
+Usage:
+    python scripts/chr1_variable_plot.py \\
+        --summary results/summary.html \\
+        --contig-length 308452471 \\
+        --out results/chr1_variable.html
 """
 from __future__ import annotations
 
-import html
+import argparse
 import math
 import re
 from pathlib import Path
@@ -18,16 +25,12 @@ from pathlib import Path
 ORIG = dict(width=900, height=300, left=60, right=20, top=28, bottom=55, y_max=100.0)
 ORIG_PLOT_H = ORIG["height"] - ORIG["top"] - ORIG["bottom"]  # 217
 
-WINDOW_BP = 100_000
-CHR1_LEN = 308_452_471
-
-HERE = Path(__file__).resolve().parents[1] / "admix_results"
-SUMMARY = HERE / "summary.html"
-OUT = HERE / "chr1_variable.html"
+DEFAULT_WINDOW_BP = 100_000
+DEFAULT_CHR1_LEN = 308_452_471  # maize B73 chromosome 1
 
 
-def extract_chr1_variable_pcts() -> list[float]:
-    text = SUMMARY.read_text(encoding="utf-8")
+def extract_chr1_variable_pcts(summary: Path) -> list[float]:
+    text = summary.read_text(encoding="utf-8")
     # isolate the chromosome-1 <details id="c-1"> ... block
     start = text.index('<details id="c-1">')
     end = text.index('<details id="c-2">')
@@ -154,9 +157,35 @@ def render(xs: list[int], values: list[float], *, width=900, height=320) -> str:
     return "\n".join(parts)
 
 
+def parse_args() -> argparse.Namespace:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--summary", type=Path, required=True, help="Path to a run's summary.html")
+    ap.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Output HTML path (default: chr1_variable.html next to --summary)",
+    )
+    ap.add_argument(
+        "--contig-length",
+        type=int,
+        default=DEFAULT_CHR1_LEN,
+        help=f"Chromosome-1 length in bp (default: {DEFAULT_CHR1_LEN}, maize B73)",
+    )
+    ap.add_argument(
+        "--window-bp",
+        type=int,
+        default=DEFAULT_WINDOW_BP,
+        help=f"Window size in bp; must match the summary.html plot (default: {DEFAULT_WINDOW_BP})",
+    )
+    return ap.parse_args()
+
+
 def main() -> None:
-    values = extract_chr1_variable_pcts()
-    xs = window_midpoints(CHR1_LEN, WINDOW_BP)
+    args = parse_args()
+    out = args.out if args.out is not None else args.summary.parent / "chr1_variable.html"
+    values = extract_chr1_variable_pcts(args.summary)
+    xs = window_midpoints(args.contig_length, args.window_bp)
     if len(xs) != len(values):
         # the polyline has one point per window; align defensively
         n = min(len(xs), len(values))
@@ -169,17 +198,17 @@ def main() -> None:
         "<style>body{font-family:sans-serif;margin:24px;color:#111;max-width:1000px}</style>\n"
         "</head>\n<body>\n"
         "<h1>Chromosome 1 — variable sites</h1>\n"
-        f"<p>Window size: <code>{WINDOW_BP:,}</code> bp &nbsp;|&nbsp; "
+        f"<p>Window size: <code>{args.window_bp:,}</code> bp &nbsp;|&nbsp; "
         f"peak window: <code>{max(values):.3f}%</code> &nbsp;|&nbsp; "
         f"mean: <code>{sum(values) / len(values):.3f}%</code></p>\n"
-        "<p>Variable-site percentage per 100 kb window, auto-scaled y-axis "
+        "<p>Variable-site percentage per window, auto-scaled y-axis "
         "(the combined plot in <code>summary.html</code> is locked to 0–100%, "
         "which flattens this series).</p>\n"
         + svg
         + "\n</body>\n</html>\n"
     )
-    OUT.write_text(doc, encoding="utf-8")
-    print(f"wrote {OUT}  ({len(values)} windows)")
+    out.write_text(doc, encoding="utf-8")
+    print(f"wrote {out}  ({len(values)} windows)")
 
 
 if __name__ == "__main__":

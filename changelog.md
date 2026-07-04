@@ -5,6 +5,12 @@ v1.0 was a full rewrite from the legacy TASSEL/gVCF/GATK pipeline — the
 pre-v1.0 (`v0.x`) entries at the bottom describe that older lineage and do not
 carry forward to the v1.x series.
 
+## v1.7 (unreleased)
+
+- Added a `split_sample_maf` rule (`scripts/split_maf_by_contig.py`) that partitions each per-sample pairwise MAF into per-reference-contig chunks under `results/maf_by_contig/<sample>/<contig>.maf`. These are regenerable intermediates.
+- `direct_maf_sites` now consumes the per-contig chunks via a new `--maf-paths SAMPLE=PATH` argument to `maf_to_sites.py`, so each contig reads only its own slice of every MAF instead of rescanning each full MAF once per contig.
+- Reduced peak memory in `maf_to_sites.py`: per-sample call arrays are now mmap-backed temp files and mask/missing intervals are streamed rather than materialized in memory. Added an explicit coverage invariant (`retained_total + masked_total == contig_len`) to the internal contig-span check.
+
 ## v1.6
 
 - Added optional per-sample assembly-quality masking. Set `quality_bed_dir` (a directory of `<sample>.bed`/`.bed.gz` files in each sample's own genome coordinates, rows `chrom start end score`) and `quality_min` to treat aligned bases scoring below the threshold as missing. Disabled by default; masked bases flow through the existing `max_missing_*` thresholds and per-sample `*.missing.bed` outputs. Both `+` and `-` strand query alignments are supported.

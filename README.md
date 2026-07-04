@@ -175,6 +175,7 @@ Outputs are written under `results/` by default (or under `results_dir` if provi
 - `sites/combined.<contig>.site_summary.tsv` — per-contig counts (see table below)
 - `sites/combined.<contig>.<sample>.missing.bed` — per-sample missing regions used by per-MAF summary stats; 4-column BED (`chrom`, `start`, `end`, `sample`)
 - `summary.html` — genome-wide overview plus per-MAF tables and per-contig per-MAF breakdowns
+- `maf_by_contig/<sample>/<contig>.maf` — intermediate per-contig MAF chunks produced by the `split_sample_maf` stage (each per-sample MAF is partitioned by reference contig so site calling reads only the relevant slice); these are regenerable intermediates, not final outputs
 
 Both VCFs share the same header and use a single haploid `GT` per sample (`0` for the REF allele, `1`/`2`/... for ALTs in `ALT` order, `.` for missing). `INFO` carries `NS` (non-missing samples), `MS` (missing samples), and `SC` (`invariant` or `variant`). All retained sites are emitted with `FILTER=PASS`; filtered-out positions appear in the BED mask, not the VCFs.
 
@@ -239,3 +240,10 @@ Summary fields include:
 - `reference_bp_with_indel_in_ge1_sample`
 - `total_snps`
 - `snps_without_overlapping_indel`
+
+## Helper scripts
+
+These are standalone utilities that are not part of the Snakemake workflow; run them by hand against a completed run's outputs.
+
+- [scripts/window_to_fasta.py](scripts/window_to_fasta.py) — builds a reference-anchored multi-FASTA alignment for a single window from a `combined.<contig>.all_sites.vcf` and the per-sample `*.missing.bed` masks, writing the reference plus one sequence per sample with masked positions as `N`.
+- [scripts/chr1_variable_plot.py](scripts/chr1_variable_plot.py) — re-renders the chromosome-1 variable-site line from a run's `summary.html` with an auto-scaled y-axis (the combined plot is locked to 0–100%, which flattens the signal); the variable percentages are read straight from the existing polyline rather than rescanning the VCF.
