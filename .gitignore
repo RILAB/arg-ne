@@ -3,6 +3,7 @@ scripts/__pycache__/
 *.bak
 gvcf/*
 results/*
+example_results/
 logs/*
 logs/**
 .snakemake/
