@@ -237,6 +237,8 @@ def read_contig_sequence(reference_fasta: Path, contig: str) -> str:
         entry = _read_fai_entry(fai_path, contig)
         if entry is not None:
             length, offset, linebases, linewidth = entry
+            if length == 0:
+                return ""
             full_lines, remainder = divmod(length, linebases)
             total_bytes = full_lines * linewidth + remainder
             with open(reference_fasta, "rb") as fh:
@@ -520,6 +522,57 @@ def summarize_site_and_mask_coverage(
     }
 
 
+def write_empty_contig_outputs(
+    out_prefix: Path,
+    contig: str,
+    samples: list[str],
+    output_samples: list[str],
+    allowed_missing: int,
+) -> None:
+    """Emit header-only VCFs and empty BED/summary for a zero-length contig.
+
+    A reference contig of length 0 has no positions to call; mmap'ing an empty
+    per-sample buffer would raise, so short-circuit here and write the same set
+    of (empty) outputs the normal path would produce.
+    """
+    all_sites_path = out_prefix.with_suffix(out_prefix.suffix + ".all_sites.vcf")
+    variants_path = out_prefix.with_suffix(out_prefix.suffix + ".vcf")
+    mask_path = out_prefix.with_suffix(out_prefix.suffix + ".mask.bed")
+    summary_path = out_prefix.with_suffix(out_prefix.suffix + ".site_summary.tsv")
+
+    all_sites_path.parent.mkdir(parents=True, exist_ok=True)
+    with open_text(all_sites_path, "wt") as all_sites, open_text(variants_path, "wt") as variants:
+        for line in vcf_header(contig, 0, output_samples):
+            all_sites.write(f"{line}\n")
+            variants.write(f"{line}\n")
+
+    write_lines(mask_path, [])
+    for sample in samples:
+        write_lines(Path(str(out_prefix) + f".{sample}.missing.bed"), [])
+
+    summary_lines = [
+        "metric\tvalue",
+        f"contig\t{contig}",
+        "contig_length\t0",
+        f"samples\t{len(samples)}",
+        f"allowed_missing\t{allowed_missing}",
+    ]
+    for key in (
+        "all_sites",
+        "variants",
+        "invariant",
+        "masked_missingness",
+        "masked_indel_adjacent",
+        "masked_multiallelic",
+        "masked_no_alignment",
+        "masked_ref_non_acgt",
+    ):
+        summary_lines.append(f"{key}\t0")
+    summary_lines.append("masked_total\t0")
+    summary_lines.append("masked_intervals\t0")
+    write_lines(summary_path, summary_lines)
+
+
 def main() -> None:
     args = parse_args()
     maf_dir = Path(args.maf_dir)
@@ -544,6 +597,16 @@ def main() -> None:
 
     contig_seq = read_contig_sequence(reference_fasta, contig)
     contig_len = len(contig_seq)
+    allowed_missing = missing_threshold(
+        len(samples),
+        args.max_missing_count,
+        args.max_missing_fraction,
+    )
+    if contig_len == 0:
+        write_empty_contig_outputs(
+            out_prefix, contig, samples, output_samples, allowed_missing
+        )
+        return
     with tempfile.TemporaryDirectory(prefix="argprep-calls-") as call_tmp_dir:
         sample_arrays: list[mmap.mmap] = []
         sample_array_files = []
@@ -582,12 +645,6 @@ def main() -> None:
                 # Vectorized OR-merge over a zero-copy uint8 view of the flags
                 # buffer (replaces a pure-Python O(contig_len) loop per sample).
                 merged_adjacent |= np.frombuffer(sample_adjacent_indels, dtype=np.uint8)
-
-        allowed_missing = missing_threshold(
-            len(samples),
-            args.max_missing_count,
-            args.max_missing_fraction,
-        )
 
         all_sites_path = out_prefix.with_suffix(out_prefix.suffix + ".all_sites.vcf")
         variants_path = out_prefix.with_suffix(out_prefix.suffix + ".vcf")

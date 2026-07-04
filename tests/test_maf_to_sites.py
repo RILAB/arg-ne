@@ -293,6 +293,104 @@ def test_maf_to_sites_keeps_multiallelic_sites_by_default(tmp_path: Path):
     assert _read_bed(masked) == []
 
 
+def test_maf_to_sites_masks_multiallelic_when_flagged(tmp_path: Path):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\nA\n", encoding="utf-8")
+    fai = tmp_path / "ref.fa.fai"
+    fai.write_text("chr1\t1\t6\t1\t2\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "chr1", "A", "s1", "A")
+    _write_pairwise_maf(maf_dir / "s2.maf", "chr1", "A", "s2", "C")
+    _write_pairwise_maf(maf_dir / "s3.maf", "chr1", "A", "s3", "G")
+
+    out_prefix = tmp_path / "results" / "combined.chr1"
+    _run(
+        [
+            sys.executable,
+            str(Path("scripts") / "maf_to_sites.py"),
+            "--maf-dir",
+            str(maf_dir),
+            "--reference-fasta",
+            str(ref),
+            "--contig",
+            "chr1",
+            "--out-prefix",
+            str(out_prefix),
+            "--samples",
+            "s1",
+            "s2",
+            "s3",
+            "--max-missing-count",
+            "0",
+            "--mask-multiallelic-snps",
+        ],
+        cwd=Path.cwd(),
+    )
+
+    all_sites = Path(str(out_prefix) + ".all_sites.vcf")
+    variants = Path(str(out_prefix) + ".vcf")
+    masked = Path(str(out_prefix) + ".mask.bed")
+    summary = Path(str(out_prefix) + ".site_summary.tsv").read_text(encoding="utf-8")
+
+    # The tri-allelic site (A/C/G) is masked out rather than emitted.
+    assert _read_vcf_records(all_sites) == []
+    assert _read_vcf_records(variants) == []
+    assert _read_bed(masked) == [("chr1", 0, 1)]
+    assert "masked_multiallelic\t1" in summary
+
+
+def test_maf_to_sites_handles_zero_length_contig(tmp_path: Path):
+    ref = tmp_path / "ref.fa"
+    # chr1 has sequence; chr0 is an empty record (length 0).
+    ref.write_text(">chr0\n\n>chr1\nA\n", encoding="utf-8")
+    fai = tmp_path / "ref.fa.fai"
+    fai.write_text("chr0\t0\t6\t0\t1\nchr1\t1\t14\t1\t2\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "chr1", "A", "s1", "A")
+
+    out_prefix = tmp_path / "results" / "combined.chr0"
+    # Must not crash (previously raised "cannot mmap an empty file").
+    _run(
+        [
+            sys.executable,
+            str(Path("scripts") / "maf_to_sites.py"),
+            "--maf-dir",
+            str(maf_dir),
+            "--reference-fasta",
+            str(ref),
+            "--contig",
+            "chr0",
+            "--out-prefix",
+            str(out_prefix),
+            "--samples",
+            "s1",
+            "--max-missing-count",
+            "0",
+        ],
+        cwd=Path.cwd(),
+    )
+
+    all_sites = Path(str(out_prefix) + ".all_sites.vcf")
+    variants = Path(str(out_prefix) + ".vcf")
+    masked = Path(str(out_prefix) + ".mask.bed")
+    missing = Path(str(out_prefix) + ".s1.missing.bed")
+    summary = Path(str(out_prefix) + ".site_summary.tsv").read_text(encoding="utf-8")
+
+    # Header-only VCFs, empty BEDs, zeroed summary.
+    assert _read_vcf_records(all_sites) == []
+    assert _read_vcf_records(variants) == []
+    assert _read_vcf_header_line(all_sites).endswith("\ts1")
+    assert _read_bed(masked) == []
+    assert _read_bed(missing) == []
+    assert "contig_length\t0" in summary
+    assert "masked_total\t0" in summary
+    assert "all_sites\t0" in summary
+
+
 def test_maf_to_sites_accepts_pairwise_blocks_with_same_src_names(tmp_path: Path):
     ref = tmp_path / "ref.fa"
     ref.write_text(">chr1\nA\n", encoding="utf-8")
@@ -691,6 +789,35 @@ def test_split_maf_by_contig_writes_only_requested_chunks(tmp_path: Path, monkey
     assert "s chr2 0 2 + 2 GG" in chr2.read_text(encoding="utf-8")
     assert "chr3" not in chr1.read_text(encoding="utf-8")
     assert "chr3" not in chr2.read_text(encoding="utf-8")
+
+
+def test_split_maf_by_contig_rejects_ambiguous_normalized_contigs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    maf = tmp_path / "sample1.maf"
+    maf.write_text(
+        "##maf version=1\n"
+        "a score=0\n"
+        "s chr1 0 2 + 2 AC\n"
+        "s sample1 0 2 + 2 AT\n",
+        encoding="utf-8",
+    )
+    out_root = tmp_path / "chunks"
+
+    # "chr1" and "1" normalize to the same key but map to different outputs.
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "split_maf_by_contig.py",
+            "--maf", str(maf),
+            "--sample", "sample1",
+            "--out-root", str(out_root),
+            "--contigs", "chr1", "1",
+        ],
+    )
+    with pytest.raises(ValueError, match="Ambiguous normalized contig"):
+        split_maf_main()
 
 
 def test_read_contig_sequence_raises_when_contig_is_missing(tmp_path: Path) -> None:
