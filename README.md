@@ -22,7 +22,7 @@ conda env create -f argprep.yml
 conda activate argprep
 ```
 
-A Docker/Singularity setup option is also available. See [container setup](containter.md)
+A Docker/Singularity setup option is also available. See [container setup](containter_setup.md)
 
 ## Configure
 
