@@ -5,6 +5,14 @@ v1.0 was a full rewrite from the legacy TASSEL/gVCF/GATK pipeline — the
 pre-v1.0 (`v0.x`) entries at the bottom describe that older lineage and do not
 carry forward to the v1.x series.
 
+## v1.8
+
+- Added optional ARGweaver `.sites` output. Set `emit_argweaver_sites: true` to also emit `sites/combined.<contig>.sites` (variant sites only; one real base per pseudo-haploid sample, `N` for missing) alongside the VCFs. Disabled by default, so existing runs are unchanged. When `add_ref` is set, the synthetic REF haplotype is appended as the final column. The variant-site set matches `sites/combined.<contig>.vcf`.
+- `split_sample_maf` now writes per-contig MAF chunks gzip-compressed (`results/maf_by_contig/<sample>/<contig>.maf.gz`) instead of uncompressed, so `.maf.gz` inputs no longer get re-materialized as a full uncompressed copy of the alignment corpus under `results/`.
+- Fixed indel-adjacent SNP masking (`mask_indel_adjacent_snps`) for insertions at the start of an alignment block: a SNP immediately following such a leading insertion was not being flagged as indel-adjacent, so it slipped through unmasked. It is now flagged like any other post-insertion site.
+- `summary_report` now treats the config file as a tracked input (so the summary rebuilds when it changes) and removes stale `sites/combined.<contig>.sites` files left over from a previous run when `emit_argweaver_sites` is disabled.
+- Documented preparing inputs for downstream ARG inference (Relate via `RelateFileFormats`, native ARGweaver `.sites`, and SINGER's direct VCF input) in the README.
+
 ## v1.7
 
 - Added a `split_sample_maf` rule (`scripts/split_maf_by_contig.py`) that partitions each per-sample pairwise MAF into per-reference-contig chunks under `results/maf_by_contig/<sample>/<contig>.maf`. These are regenerable intermediates.

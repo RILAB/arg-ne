@@ -1,5 +1,6 @@
 import subprocess
 import sys
+import gzip
 from pathlib import Path
 
 import pytest
@@ -14,8 +15,8 @@ from scripts.maf_to_sites import (
     missing_threshold,
     parse_maf_path_map,
     read_contig_sequence,
-    summarize_site_and_mask_coverage,
 )
+from scripts.summary_report import read_sample_missing_bp
 from scripts.split_maf_by_contig import main as split_maf_main
 
 
@@ -93,6 +94,26 @@ def _read_bed(path: Path) -> list[tuple]:
             else:
                 rows.append((chrom, start, end))
     return rows
+
+
+def _read_sites(path: Path):
+    """Parse an ARGweaver .sites file into (names, region, [(pos, alleles)...])."""
+    names: list[str] = []
+    region: tuple[str, ...] = ()
+    rows: list[tuple[str, str]] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.rstrip("\n")
+            if not line:
+                continue
+            fields = line.split("\t")
+            if fields[0] == "NAMES":
+                names = fields[1:]
+            elif fields[0] == "REGION":
+                region = tuple(fields[1:])
+            else:
+                rows.append((fields[0], fields[1]))
+    return names, region, rows
 
 
 def test_maf_to_sites_emits_expected_records_and_mask(tmp_path: Path):
@@ -391,6 +412,168 @@ def test_maf_to_sites_handles_zero_length_contig(tmp_path: Path):
     assert "all_sites\t0" in summary
 
 
+def test_maf_to_sites_emits_argweaver_sites(tmp_path: Path):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\nACGT\n", encoding="utf-8")
+    (tmp_path / "ref.fa.fai").write_text("chr1\t4\t6\t4\t5\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "chr1", "ACGT", "s1", "ACGT")
+    _write_pairwise_maf(maf_dir / "s2.maf", "chr1", "ACGT", "s2", "AGGT")
+
+    out_prefix = tmp_path / "results" / "combined.chr1"
+    _run(
+        [
+            sys.executable,
+            str(Path("scripts") / "maf_to_sites.py"),
+            "--maf-dir", str(maf_dir),
+            "--reference-fasta", str(ref),
+            "--contig", "chr1",
+            "--out-prefix", str(out_prefix),
+            "--samples", "s1", "s2",
+            "--max-missing-count", "0",
+            "--emit-argweaver-sites",
+        ],
+        cwd=Path.cwd(),
+    )
+
+    names, region, rows = _read_sites(Path(str(out_prefix) + ".sites"))
+    assert names == ["s1", "s2"]
+    assert region == ("chr1", "1", "4")
+    # Only the single variant site (pos 2: ref C, s2 G) is emitted, one real base per sample.
+    assert rows == [("2", "CG")]
+    # The .sites variant positions match the variant VCF exactly.
+    variant_positions = [rec[1] for rec in _read_vcf_records(Path(str(out_prefix) + ".vcf"))]
+    assert [pos for pos, _ in rows] == variant_positions
+
+
+def test_maf_to_sites_omits_argweaver_sites_by_default(tmp_path: Path):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\nACGT\n", encoding="utf-8")
+    (tmp_path / "ref.fa.fai").write_text("chr1\t4\t6\t4\t5\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "chr1", "ACGT", "s1", "ACGT")
+    _write_pairwise_maf(maf_dir / "s2.maf", "chr1", "ACGT", "s2", "AGGT")
+
+    out_prefix = tmp_path / "results" / "combined.chr1"
+    _run(
+        [
+            sys.executable,
+            str(Path("scripts") / "maf_to_sites.py"),
+            "--maf-dir", str(maf_dir),
+            "--reference-fasta", str(ref),
+            "--contig", "chr1",
+            "--out-prefix", str(out_prefix),
+            "--samples", "s1", "s2",
+            "--max-missing-count", "0",
+        ],
+        cwd=Path.cwd(),
+    )
+
+    assert not Path(str(out_prefix) + ".sites").exists()
+
+
+def test_maf_to_sites_argweaver_sites_missing_becomes_n(tmp_path: Path):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\nACGT\n", encoding="utf-8")
+    (tmp_path / "ref.fa.fai").write_text("chr1\t4\t6\t4\t5\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "chr1", "ACGT", "s1", "ACGT")
+    _write_pairwise_maf(maf_dir / "s2.maf", "chr1", "ACGT", "s2", "AGGT")
+    _write_pairwise_maf(maf_dir / "s3.maf", "chr1", "ACGT", "s3", "ANGT")
+
+    out_prefix = tmp_path / "results" / "combined.chr1"
+    _run(
+        [
+            sys.executable,
+            str(Path("scripts") / "maf_to_sites.py"),
+            "--maf-dir", str(maf_dir),
+            "--reference-fasta", str(ref),
+            "--contig", "chr1",
+            "--out-prefix", str(out_prefix),
+            "--samples", "s1", "s2", "s3",
+            "--max-missing-count", "1",
+            "--emit-argweaver-sites",
+        ],
+        cwd=Path.cwd(),
+    )
+
+    names, _region, rows = _read_sites(Path(str(out_prefix) + ".sites"))
+    assert names == ["s1", "s2", "s3"]
+    # s3's missing (N) call becomes 'N'; width stays one char per sample.
+    assert rows == [("2", "CGN")]
+    assert all(len(alleles) == len(names) for _pos, alleles in rows)
+
+
+def test_maf_to_sites_argweaver_sites_add_ref_appends_ref_base(tmp_path: Path):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\nACGT\n", encoding="utf-8")
+    (tmp_path / "ref.fa.fai").write_text("chr1\t4\t6\t4\t5\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "chr1", "ACGT", "s1", "ACGT")
+    _write_pairwise_maf(maf_dir / "s2.maf", "chr1", "ACGT", "s2", "AGGT")
+
+    out_prefix = tmp_path / "results" / "combined.chr1"
+    _run(
+        [
+            sys.executable,
+            str(Path("scripts") / "maf_to_sites.py"),
+            "--maf-dir", str(maf_dir),
+            "--reference-fasta", str(ref),
+            "--contig", "chr1",
+            "--out-prefix", str(out_prefix),
+            "--samples", "s1", "s2",
+            "--max-missing-count", "0",
+            "--add-ref",
+            "--emit-argweaver-sites",
+        ],
+        cwd=Path.cwd(),
+    )
+
+    names, _region, rows = _read_sites(Path(str(out_prefix) + ".sites"))
+    assert names == ["s1", "s2", "REF"]
+    # REF haplotype is appended last and carries the reference base (C at pos 2).
+    assert rows == [("2", "CGC")]
+
+
+def test_maf_to_sites_argweaver_sites_empty_contig(tmp_path: Path):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr0\n\n>chr1\nA\n", encoding="utf-8")
+    (tmp_path / "ref.fa.fai").write_text("chr0\t0\t6\t0\t1\nchr1\t1\t14\t1\t2\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "chr1", "A", "s1", "A")
+
+    out_prefix = tmp_path / "results" / "combined.chr0"
+    _run(
+        [
+            sys.executable,
+            str(Path("scripts") / "maf_to_sites.py"),
+            "--maf-dir", str(maf_dir),
+            "--reference-fasta", str(ref),
+            "--contig", "chr0",
+            "--out-prefix", str(out_prefix),
+            "--samples", "s1",
+            "--max-missing-count", "0",
+            "--emit-argweaver-sites",
+        ],
+        cwd=Path.cwd(),
+    )
+
+    names, region, rows = _read_sites(Path(str(out_prefix) + ".sites"))
+    assert names == ["s1"]
+    assert region == ("chr0", "1", "0")
+    assert rows == []
+
+
 def test_maf_to_sites_accepts_pairwise_blocks_with_same_src_names(tmp_path: Path):
     ref = tmp_path / "ref.fa"
     ref.write_text(">chr1\nA\n", encoding="utf-8")
@@ -478,6 +661,49 @@ def test_maf_to_sites_masks_snp_adjacent_to_insertion(tmp_path: Path):
     assert [record[1] for record in all_records] == ["1", "3", "4"]
     assert [record[1] for record in _read_vcf_records(variants)] == []
     assert _read_bed(masked) == [("chr1", 1, 2)]
+
+
+def test_maf_to_sites_masks_snp_after_leading_insertion(tmp_path: Path):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\nAC\n", encoding="utf-8")
+    fai = tmp_path / "ref.fa.fai"
+    fai.write_text("chr1\t2\t6\t2\t3\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "chr1", "-AC", "s1", "TGC")
+    _write_pairwise_maf(maf_dir / "s2.maf", "chr1", "-AC", "s2", "-AC")
+
+    out_prefix = tmp_path / "results" / "combined.chr1"
+    _run(
+        [
+            sys.executable,
+            str(Path("scripts") / "maf_to_sites.py"),
+            "--maf-dir",
+            str(maf_dir),
+            "--reference-fasta",
+            str(ref),
+            "--contig",
+            "chr1",
+            "--out-prefix",
+            str(out_prefix),
+            "--samples",
+            "s1",
+            "s2",
+            "--max-missing-count",
+            "0",
+            "--mask-indel-adjacent-snps",
+        ],
+        cwd=Path.cwd(),
+    )
+
+    all_sites = Path(str(out_prefix) + ".all_sites.vcf")
+    variants = Path(str(out_prefix) + ".vcf")
+    masked = Path(str(out_prefix) + ".mask.bed")
+
+    assert [record[1] for record in _read_vcf_records(all_sites)] == ["2"]
+    assert _read_vcf_records(variants) == []
+    assert _read_bed(masked) == [("chr1", 0, 1)]
 
 
 def test_maf_to_sites_can_keep_snp_adjacent_to_insertion(tmp_path: Path):
@@ -682,24 +908,43 @@ def test_maf_to_sites_matches_normalized_contig_names(tmp_path: Path):
     assert "masked_no_alignment\t0\n" in summary
 
 
-def test_summarize_site_and_mask_coverage_rejects_overlap() -> None:
-    with pytest.raises(ValueError, match="overlap detected"):
-        summarize_site_and_mask_coverage(
-            "chr1",
-            4,
-            [0, 1],
-            [1, 2],
-        )
+def test_maf_to_sites_ignores_maf_columns_past_reference_contig_length(tmp_path: Path):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\nAC\n", encoding="utf-8")
+    (tmp_path / "ref.fa.fai").write_text("chr1\t2\t6\t2\t3\n", encoding="utf-8")
 
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "chr1", "ACGT", "s1", "ACGT")
+    _write_pairwise_maf(maf_dir / "s2.maf", "chr1", "ACGT", "s2", "ATGT")
 
-def test_summarize_site_and_mask_coverage_requires_full_contig_coverage() -> None:
-    with pytest.raises(ValueError, match="coverage mismatch"):
-        summarize_site_and_mask_coverage(
+    out_prefix = tmp_path / "results" / "combined.chr1"
+    _run(
+        [
+            sys.executable,
+            str(Path("scripts") / "maf_to_sites.py"),
+            "--maf-dir",
+            str(maf_dir),
+            "--reference-fasta",
+            str(ref),
+            "--contig",
             "chr1",
-            4,
-            [0, 1],
-            [3],
-        )
+            "--out-prefix",
+            str(out_prefix),
+            "--samples",
+            "s1",
+            "s2",
+            "--max-missing-count",
+            "0",
+        ],
+        cwd=Path.cwd(),
+    )
+
+    all_records = _read_vcf_records(Path(str(out_prefix) + ".all_sites.vcf"))
+    variant_records = _read_vcf_records(Path(str(out_prefix) + ".vcf"))
+
+    assert [record[1] for record in all_records] == ["1", "2"]
+    assert [record[1] for record in variant_records] == ["2"]
 
 
 def test_discover_samples_handles_maf_and_maf_gz(tmp_path: Path) -> None:
@@ -751,6 +996,18 @@ def test_parse_maf_path_map_overrides_sample_paths(tmp_path: Path) -> None:
     assert maf_path_for_sample_with_map(maf_dir, "sample2", paths) == sample2
 
 
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ("sample1", "expected SAMPLE=PATH"),
+        ("=/tmp/sample1.maf", "sample is empty"),
+    ],
+)
+def test_parse_maf_path_map_rejects_invalid_entries(value: str, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        parse_maf_path_map([value])
+
+
 def test_split_maf_by_contig_writes_only_requested_chunks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     maf = tmp_path / "sample1.maf"
     maf.write_text(
@@ -783,12 +1040,45 @@ def test_split_maf_by_contig_writes_only_requested_chunks(tmp_path: Path, monkey
     )
     split_maf_main()
 
-    chr1 = out_root / "sample1" / "1.maf"
-    chr2 = out_root / "sample1" / "chr2.maf"
-    assert "s chr1 0 2 + 2 AC" in chr1.read_text(encoding="utf-8")
-    assert "s chr2 0 2 + 2 GG" in chr2.read_text(encoding="utf-8")
-    assert "chr3" not in chr1.read_text(encoding="utf-8")
-    assert "chr3" not in chr2.read_text(encoding="utf-8")
+    chr1 = out_root / "sample1" / "1.maf.gz"
+    chr2 = out_root / "sample1" / "chr2.maf.gz"
+    with gzip.open(chr1, "rt", encoding="utf-8") as handle:
+        chr1_text = handle.read()
+    with gzip.open(chr2, "rt", encoding="utf-8") as handle:
+        chr2_text = handle.read()
+    assert "s chr1 0 2 + 2 AC" in chr1_text
+    assert "s chr2 0 2 + 2 GG" in chr2_text
+    assert "chr3" not in chr1_text
+    assert "chr3" not in chr2_text
+
+
+def test_split_maf_by_contig_reads_gzip_input(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    maf = tmp_path / "sample1.maf.gz"
+    with gzip.open(maf, "wt", encoding="utf-8") as handle:
+        handle.write(
+            "##maf version=1\n"
+            "a score=0\n"
+            "s chr1 0 2 + 2 AC\n"
+            "s sample1 0 2 + 2 AT\n",
+        )
+    out_root = tmp_path / "chunks"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "split_maf_by_contig.py",
+            "--maf", str(maf),
+            "--sample", "sample1",
+            "--out-root", str(out_root),
+            "--contigs", "chr1",
+        ],
+    )
+    split_maf_main()
+
+    chunk = out_root / "sample1" / "chr1.maf.gz"
+    with gzip.open(chunk, "rt", encoding="utf-8") as handle:
+        assert "s chr1 0 2 + 2 AC" in handle.read()
 
 
 def test_split_maf_by_contig_rejects_ambiguous_normalized_contigs(
@@ -818,6 +1108,21 @@ def test_split_maf_by_contig_rejects_ambiguous_normalized_contigs(
     )
     with pytest.raises(ValueError, match="Ambiguous normalized contig"):
         split_maf_main()
+
+
+def test_read_sample_missing_bp_matches_longest_sample_suffix(tmp_path: Path) -> None:
+    beds = []
+    for name, body in [
+        ("combined.chr1.s1.missing.bed", "chr1\t0\t2\ts1\n"),
+        ("combined.chr1.xs1.missing.bed", "chr1\t2\t5\txs1\n"),
+    ]:
+        path = tmp_path / name
+        path.write_text(body, encoding="utf-8")
+        beds.append(path)
+
+    data = read_sample_missing_bp(beds, ["s1", "xs1"], {"chr1": 10})
+
+    assert data == {"s1": {"chr1": 2}, "xs1": {"chr1": 3}}
 
 
 def test_read_contig_sequence_raises_when_contig_is_missing(tmp_path: Path) -> None:

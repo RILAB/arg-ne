@@ -430,20 +430,32 @@ rule summary_report:
         all_sites=lambda wc: [str(_direct_all_sites_out(c)) for c in _active_contigs()],
         masks=lambda wc: [str(_direct_mask_out(c)) for c in _active_contigs()],
         summaries=lambda wc: [str(_direct_prefix(c)) + ".site_summary.tsv" for c in _active_contigs()],
+        argweaver_sites=lambda wc: (
+            [str(_direct_sites_out(c)) for c in _active_contigs()]
+            if EMIT_ARGWEAVER_SITES
+            else []
+        ),
         sample_missing_beds=lambda wc: [
             str(_direct_sample_missing_mask_out(c, s))
             for c in _active_contigs()
             for s in SAMPLES
         ],
         fai=REF_FAI,
+        options_yaml=str(Path(workflow.configfiles[0]).resolve()),
     output:
         report=str(RESULTS_DIR / "summary.html"),
     params:
         window_bp=SUMMARY_WINDOW_BP,
-        options_yaml=str(Path(workflow.configfiles[0]).resolve()),
+        emit_argweaver_sites=EMIT_ARGWEAVER_SITES,
+        stale_argweaver_sites=lambda wc: " ".join(
+            shlex.quote(str(_direct_sites_out(c))) for c in _active_contigs()
+        ),
     shell:
         """
         set -euo pipefail
+        if [ "{params.emit_argweaver_sites}" != "True" ]; then
+          rm -f {params.stale_argweaver_sites}
+        fi
         python "{workflow.basedir}/scripts/summary_report.py" \
           --fai "{input.fai}" \
           --window-bp "{params.window_bp}" \
@@ -452,5 +464,5 @@ rule summary_report:
           --masked-beds {input.masks} \
           --site-summaries {input.summaries} \
           --sample-missing-beds {input.sample_missing_beds} \
-          --options-yaml "{params.options_yaml}"
+          --options-yaml "{input.options_yaml}"
         """

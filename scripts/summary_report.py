@@ -351,7 +351,7 @@ def svg_genome_overview(
     width: int = 900,
     height: int = 300,
 ) -> str:
-    """Stacked vertical bar chart: retained / masked / unaligned fraction per contig."""
+    """Stacked vertical bar chart: retained / masked fraction per contig."""
     if not contigs:
         return ""
     margin = {"left": 50, "right": 150, "top": 20, "bottom": 65}
@@ -361,7 +361,7 @@ def svg_genome_overview(
     bar_step = plot_w / n
     bar_w = bar_step * 0.75
 
-    colors = {"retained": "#4C78A8", "masked": "#E45756", "unaligned": "#bdbdbd"}
+    colors = {"retained": "#4C78A8", "masked": "#E45756"}
 
     parts = [
         f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
@@ -404,7 +404,6 @@ def svg_genome_overview(
     )
 
     for i, (contig, length, ret, mask) in enumerate(zip(contigs, lengths, retained, masked)):
-        unaligned = max(length - ret - mask, 0)
         bar_x = margin["left"] + i * bar_step + (bar_step - bar_w) / 2
         label_x = bar_x + bar_w / 2
         y_bottom = margin["top"] + plot_h
@@ -414,7 +413,6 @@ def svg_genome_overview(
 
         ret_h = bar_h(ret)
         mask_h = bar_h(mask)
-        una_h = bar_h(unaligned)
 
         parts.append(
             f'<rect x="{bar_x:.2f}" y="{y_bottom - ret_h:.2f}" '
@@ -423,10 +421,6 @@ def svg_genome_overview(
         parts.append(
             f'<rect x="{bar_x:.2f}" y="{y_bottom - ret_h - mask_h:.2f}" '
             f'width="{bar_w:.2f}" height="{mask_h:.2f}" fill="{colors["masked"]}"/>'
-        )
-        parts.append(
-            f'<rect x="{bar_x:.2f}" y="{y_bottom - ret_h - mask_h - una_h:.2f}" '
-            f'width="{bar_w:.2f}" height="{una_h:.2f}" fill="{colors["unaligned"]}"/>'
         )
 
         # rotated contig label
@@ -442,7 +436,6 @@ def svg_genome_overview(
     for idx, (color, label) in enumerate([
         (colors["retained"], "Retained"),
         (colors["masked"], "Masked"),
-        (colors["unaligned"], "Unaligned"),
     ]):
         ly = margin["top"] + 20 + idx * 24
         parts.append(f'<rect x="{legend_x}" y="{ly}" width="14" height="14" fill="{color}"/>')

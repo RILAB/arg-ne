@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import bisect
+import contextlib
 import mmap
 import sys
 import tempfile
@@ -161,6 +162,13 @@ def parse_args() -> argparse.Namespace:
         action="store_false",
     )
     ap.add_argument("--add-ref", action="store_true", default=False)
+    ap.add_argument(
+        "--emit-argweaver-sites",
+        dest="emit_argweaver_sites",
+        action="store_true",
+        default=False,
+        help="Also emit an ARGweaver .sites file (variant sites only) alongside the VCFs.",
+    )
     ap.add_argument(
         "--quality-bed-dir",
         default=None,
@@ -360,7 +368,7 @@ def load_sample_calls(
                     if prev_ref_idx is not None:
                         if adjacent_indel_flags is not None:
                             adjacent_indel_flags[prev_ref_idx] = 1
-                        mark_next_ref_adjacent = True
+                    mark_next_ref_adjacent = True
                     sample_offset += 1
                 continue
 
@@ -427,6 +435,20 @@ def format_gt(call_code: int, alt_order: list[str]) -> str:
     return str(alt_order.index(base) + 1)
 
 
+def sites_allele_string(call_codes: list[int], ref_base: str, add_ref: bool) -> str:
+    """One real base per (pseudo-haploid) sample for an ARGweaver .sites line.
+
+    Non-missing codes are always 1-4 (ACGT); missing codes (0/5/7) become ``N``.
+    When ``add_ref`` is set, the synthetic REF haplotype is appended last and
+    always carries the reference base, mirroring the trailing ``0`` genotype the
+    VCF writes for the REF sample.
+    """
+    chars = ["N" if code in MISSING_CODES else CODE_TO_BASE[code] for code in call_codes]
+    if add_ref:
+        chars.append(ref_base)
+    return "".join(chars)
+
+
 def vcf_header(contig: str, contig_len: int, samples: list[str]) -> list[str]:
     return [
         "##fileformat=VCFv4.2",
@@ -447,14 +469,6 @@ def write_lines(path: Path, lines: Iterable[str]) -> None:
         for line in lines:
             handle.write(line)
             handle.write("\n")
-
-
-def intervals_from_positions(contig: str, masked_positions: list[int]) -> list[tuple[str, int, int]]:
-    intervals: list[tuple[int, int]] = []
-    for pos in masked_positions:
-        intervals.append((pos, pos + 1))
-    merged = merge_intervals(intervals)
-    return [(contig, start, end) for start, end in merged]
 
 
 class IntervalBuilder:
@@ -481,53 +495,13 @@ class IntervalBuilder:
         ]
 
 
-def summarize_site_and_mask_coverage(
-    contig: str,
-    contig_len: int,
-    site_positions_0based: list[int],
-    masked_positions_0based: list[int],
-) -> dict[str, int | str]:
-    site_intervals = merge_intervals([(pos, pos + 1) for pos in site_positions_0based])
-    mask_intervals = merge_intervals([(pos, pos + 1) for pos in masked_positions_0based])
-
-    i = j = 0
-    overlap = 0
-    while i < len(site_intervals) and j < len(mask_intervals):
-        site_start, site_end = site_intervals[i]
-        mask_start, mask_end = mask_intervals[j]
-        if site_end <= mask_start:
-            i += 1
-            continue
-        if mask_end <= site_start:
-            j += 1
-            continue
-        overlap += min(site_end, mask_end) - max(site_start, mask_start)
-        if site_end <= mask_end:
-            i += 1
-        else:
-            j += 1
-    if overlap:
-        raise ValueError(f"overlap detected for {contig}: site_vcf vs mask_bed={overlap}")
-
-    total = sum(end - start for start, end in merge_intervals(site_intervals + mask_intervals))
-    if total != contig_len:
-        raise ValueError(f"coverage mismatch for {contig}: union={total}, chrom_len={contig_len}")
-
-    return {
-        "chrom": contig,
-        "site_bp": sum(end - start for start, end in site_intervals),
-        "mask_bed_bp": sum(end - start for start, end in mask_intervals),
-        "total_bp": total,
-        "chrom_len": contig_len,
-    }
-
-
 def write_empty_contig_outputs(
     out_prefix: Path,
     contig: str,
     samples: list[str],
     output_samples: list[str],
     allowed_missing: int,
+    emit_argweaver_sites: bool = False,
 ) -> None:
     """Emit header-only VCFs and empty BED/summary for a zero-length contig.
 
@@ -545,6 +519,16 @@ def write_empty_contig_outputs(
         for line in vcf_header(contig, 0, output_samples):
             all_sites.write(f"{line}\n")
             variants.write(f"{line}\n")
+
+    if emit_argweaver_sites:
+        sites_path = out_prefix.with_suffix(out_prefix.suffix + ".sites")
+        write_lines(
+            sites_path,
+            [
+                "NAMES\t" + "\t".join(output_samples),
+                f"REGION\t{contig}\t1\t0",
+            ],
+        )
 
     write_lines(mask_path, [])
     for sample in samples:
@@ -604,7 +588,12 @@ def main() -> None:
     )
     if contig_len == 0:
         write_empty_contig_outputs(
-            out_prefix, contig, samples, output_samples, allowed_missing
+            out_prefix,
+            contig,
+            samples,
+            output_samples,
+            allowed_missing,
+            emit_argweaver_sites=args.emit_argweaver_sites,
         )
         return
     with tempfile.TemporaryDirectory(prefix="argprep-calls-") as call_tmp_dir:
@@ -650,12 +639,23 @@ def main() -> None:
         variants_path = out_prefix.with_suffix(out_prefix.suffix + ".vcf")
         mask_path = out_prefix.with_suffix(out_prefix.suffix + ".mask.bed")
         summary_path = out_prefix.with_suffix(out_prefix.suffix + ".site_summary.tsv")
+        sites_path = out_prefix.with_suffix(out_prefix.suffix + ".sites")
 
         all_sites_path.parent.mkdir(parents=True, exist_ok=True)
-        with open_text(all_sites_path, "wt") as all_sites, open_text(variants_path, "wt") as variants:
+        with contextlib.ExitStack() as stack:
+            all_sites = stack.enter_context(open_text(all_sites_path, "wt"))
+            variants = stack.enter_context(open_text(variants_path, "wt"))
+            sites = (
+                stack.enter_context(open_text(sites_path, "wt"))
+                if args.emit_argweaver_sites
+                else None
+            )
             for line in vcf_header(contig, contig_len, output_samples):
                 all_sites.write(f"{line}\n")
                 variants.write(f"{line}\n")
+            if sites is not None:
+                sites.write("NAMES\t" + "\t".join(output_samples) + "\n")
+                sites.write(f"REGION\t{contig}\t1\t{contig_len}\n")
 
             mask_intervals = IntervalBuilder(contig)
             masked_total = 0
@@ -761,6 +761,10 @@ def main() -> None:
                     )
                     all_sites.write(f"{record}\n")
                     variants.write(f"{record}\n")
+                    if sites is not None:
+                        sites.write(
+                            f"{pos}\t{sites_allele_string(call_codes, ref_base, add_ref)}\n"
+                        )
 
         if retained_total + masked_total != contig_len:
             raise ValueError(

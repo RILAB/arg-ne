@@ -88,6 +88,7 @@ def test_summary_report_html_contains_separate_plots_per_contig(tmp_path: Path):
     assert "Invariant (%)" in html
     assert "Variable (%)" in html
     assert "Missing (%)" in html
+    assert "Unaligned" not in html
     # One combined SVG per active contig (chr1, chr2) — no per-series <h3> headings.
     assert html.count("<details") == 2
     assert html.count("<polyline") >= 6  # 3 series × 2 contigs

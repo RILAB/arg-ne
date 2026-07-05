@@ -314,6 +314,76 @@ def test_workflow_omits_argweaver_sites_by_default(tmp_path: Path) -> None:
     importlib.util.find_spec("snakemake") is None,
     reason="snakemake is not installed in the test environment",
 )
+def test_workflow_disabling_argweaver_sites_removes_stale_output(tmp_path: Path) -> None:
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">1\nACGT\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "1", "ACGT", "s1", "ACGT")
+    _write_pairwise_maf(maf_dir / "s2.maf", "1", "ACGT", "s2", "AGGT")
+
+    config = tmp_path / "config.yaml"
+    base_config = [
+        "maf_dir: maf",
+        "reference_fasta: ref.fa",
+        "results_dir: results",
+        'samples: ["s1", "s2"]',
+        "max_missing_count: 0",
+    ]
+    config.write_text("\n".join(base_config + ["emit_argweaver_sites: true"]) + "\n", encoding="utf-8")
+
+    target = str(tmp_path / "results" / "summary.html")
+    result = _run_snakemake(tmp_path, config, target)
+    assert result.returncode == 0, result.stderr
+    sites = tmp_path / "results" / "sites" / "combined.1.sites"
+    assert sites.exists()
+
+    config.write_text("\n".join(base_config + ["emit_argweaver_sites: false"]) + "\n", encoding="utf-8")
+    result = _run_snakemake(tmp_path, config, target)
+    assert result.returncode == 0, result.stderr
+    assert not sites.exists()
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("snakemake") is None,
+    reason="snakemake is not installed in the test environment",
+)
+def test_workflow_enabling_argweaver_sites_for_summary_target_creates_output(tmp_path: Path) -> None:
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">1\nACGT\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "1", "ACGT", "s1", "ACGT")
+    _write_pairwise_maf(maf_dir / "s2.maf", "1", "ACGT", "s2", "AGGT")
+
+    config = tmp_path / "config.yaml"
+    base_config = [
+        "maf_dir: maf",
+        "reference_fasta: ref.fa",
+        "results_dir: results",
+        'samples: ["s1", "s2"]',
+        "max_missing_count: 0",
+    ]
+    config.write_text("\n".join(base_config + ["emit_argweaver_sites: false"]) + "\n", encoding="utf-8")
+
+    target = str(tmp_path / "results" / "summary.html")
+    result = _run_snakemake(tmp_path, config, target)
+    assert result.returncode == 0, result.stderr
+    sites = tmp_path / "results" / "sites" / "combined.1.sites"
+    assert not sites.exists()
+
+    config.write_text("\n".join(base_config + ["emit_argweaver_sites: true"]) + "\n", encoding="utf-8")
+    result = _run_snakemake(tmp_path, config, target)
+    assert result.returncode == 0, result.stderr
+    assert sites.exists()
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("snakemake") is None,
+    reason="snakemake is not installed in the test environment",
+)
 def test_workflow_handles_sample_names_with_spaces(tmp_path: Path) -> None:
     ref = tmp_path / "ref.fa"
     ref.write_text(">1\nAC\n", encoding="utf-8")

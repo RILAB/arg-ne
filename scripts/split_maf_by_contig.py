@@ -52,7 +52,7 @@ def main() -> None:
     handles = {}
     try:
         for contig in contigs:
-            out_path = sample_dir / f"{contig}.maf"
+            out_path = sample_dir / f"{contig}.maf.gz"
             handle = open_text(out_path, "wt")
             handle.write("##maf version=1\n")
             handles[contig] = handle

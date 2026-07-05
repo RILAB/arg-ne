@@ -22,7 +22,7 @@ conda env create -f argprep.yml
 conda activate argprep
 ```
 
-A Docker/Singularity setup option is also available. See [container setup](containter.md)
+A Docker/Singularity setup option is also available. See [container setup](container_setup.md)
 
 ## Configure
 
@@ -45,12 +45,13 @@ Optional controls (defaults shown):
 - `mask_indel_adjacent_snps: false` - when `true`, mask SNPs immediately flanking an indel in any sample (see [NOTES.md](NOTES.md) for exact semantics)
 - `allow_multiallelic_snps: true` - retain sites with more than two alleles
 - `add_ref: false` - append a synthetic `REF` sample (genotype `0`) to both VCFs
+- `emit_argweaver_sites: false` - when `true`, also emit a per-contig ARGweaver `.sites` file (see [Preparing inputs for ARG inference](#preparing-inputs-for-arg-inference))
 - `summary_window_bp: 100000` - window size in bp for binned per-contig plots in `summary.html` (this does not affect the per-MAF tables)
 - `quality_bed_dir` / `quality_min` - no default; optional per-sample assembly-quality masking (see below)
 
 SLURM resource overrides (for the `direct_maf_sites` rule):
 
-- `maf_threads: 2`
+- `maf_threads: 1`
 - `maf_mem_mb: 48000`
 - `maf_time: "24:00:00"`
 
@@ -175,9 +176,10 @@ Outputs are written under `results/` by default (or under `results_dir` if provi
 - `sites/combined.<contig>.vcf` — variant-only subset of `all_sites.vcf`
 - `sites/combined.<contig>.mask.bed` — merged BED intervals for masked positions
 - `sites/combined.<contig>.site_summary.tsv` — per-contig counts (see table below)
+- `sites/combined.<contig>.sites` — ARGweaver-format sites file (variant sites only; one real base per pseudo-haploid sample, `N` for missing). Emitted only when `emit_argweaver_sites: true`
 - `sites/combined.<contig>.<sample>.missing.bed` — per-sample missing regions used by per-MAF summary stats; 4-column BED (`chrom`, `start`, `end`, `sample`)
 - `summary.html` — genome-wide overview plus per-MAF tables and per-contig per-MAF breakdowns
-- `maf_by_contig/<sample>/<contig>.maf` — intermediate per-contig MAF chunks produced by the `split_sample_maf` stage (each per-sample MAF is partitioned by reference contig so site calling reads only the relevant slice); these are regenerable intermediates, not final outputs
+- `maf_by_contig/<sample>/<contig>.maf.gz` — intermediate per-contig MAF chunks produced by the `split_sample_maf` stage (each per-sample MAF is partitioned by reference contig so site calling reads only the relevant slice, and chunks are gzip-compressed to avoid duplicating the alignment corpus uncompressed); these are regenerable intermediates, not final outputs
 
 Both VCFs share the same header and use a single haploid `GT` per sample (`0` for the REF allele, `1`/`2`/... for ALTs in `ALT` order, `.` for missing). `INFO` carries `NS` (non-missing samples), `MS` (missing samples), and `SC` (`invariant` or `variant`). All retained sites are emitted with `FILTER=PASS`; filtered-out positions appear in the BED mask, not the VCFs.
 
@@ -219,6 +221,18 @@ RelateFileFormats \
 You then supply Relate itself with a genetic map (`--map`) and mutation/recombination rates at run time; a flat constant-rate map is fine if you have no measured map. See the [Relate documentation](https://myersgroup.github.io/relate/) for the full pipeline (`PrepareInputFiles`, ancestral-allele polarization, and mask handling — the per-contig `mask.bed` can seed the accessibility mask).
 
 > **Note:** ARGprep emits a single-allele haploid `GT` per sample. Relate is designed around phased haplotype data, so verify the converted `.haps` treats each sample as one haplotype as you expect before running a large analysis.
+
+**ARGweaver.** Set `emit_argweaver_sites: true` to have the pipeline write a native `.sites` file per contig directly — no conversion step needed. Each `sites/combined.<contig>.sites` is:
+
+```
+NAMES   <sample1>  <sample2>  ...
+REGION  <contig>   1  <contig_length>
+<pos>   <one real base per sample>      # variant sites only; missing calls are N
+```
+
+Because ARGprep is pseudo-haploid, each sample contributes exactly one character per site (no phasing needed). Only variant sites are listed — the set matches `sites/combined.<contig>.vcf`. When `add_ref: true`, the synthetic REF haplotype is appended as the final column (always the reference base). Supply ARGweaver's recombination rate on its command line (`arg-sample -r ...`); ARGprep does not emit a recombination map.
+
+**SINGER.** No conversion needed — SINGER reads a VCF directly (`singer_master -vcf sites/combined.<contig> ...`, without the `.vcf` suffix). Supply the mutation/recombination rates on SINGER's command line.
 
 ## Testing
 
