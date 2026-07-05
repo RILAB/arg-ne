@@ -28,13 +28,13 @@ algorithms, rather than competing implementations of the same algorithm.
 |---|---|---|
 | Input cardinality | N per-sample MAFs against a common reference | One pairwise MAF (or PAF) |
 | Output samples | Multi-sample VCF (one column per sample) | Single-sample VCF (one query column) |
-| Coordinate frame | Reference-anchored bytearray of length `contig_len` | Walk alignment columns, maintaining target/query offsets |
+| Coordinate frame | Reference-anchored, per-contig call arrays of length `contig_len` | Walk alignment columns, maintaining target/query offsets |
 | Sites emitted | Every reference base is either retained (in VCF) or masked (in BED); the union spans the contig exactly | Only positions inside aligned blocks; unaligned regions are silently absent |
 | Variant types | SNPs only (multi-allelic optional). Indels are a masking signal, not a variant. | SNPs + INS + DEL (length > `--svlen`, default 50) + INV (`<INV>` symbolic) |
 | Missingness | Explicit per-site count; site rejected if `missing > threshold`. Missing = unaligned, `-`, `N`, or non-ACGT. | No concept — only aligned bases are considered |
 | Indel encoding | Indel-overlapped (and optionally adjacent) reference positions go to BED mask | VCF records with anchor-base REF/ALT encoding plus `SVTYPE/SVLEN/END` |
 | Strand / inversion | Not handled at the calling layer — bases are projected as AnchorWave aligned them | Negative-strand blocks emit a leading `<INV>` record and add `INV_NEST=TRUE` to nested variants |
-| Chunking | None; whole contig held in memory as bytearrays | Default 1 Mb alignment-column chunks with an "SV-safe boundary" search |
+| Chunking | Snakemake first splits each MAF by reference contig; site classification then processes 1 Mb reference-position chunks over mmap-backed per-sample arrays | Default 1 Mb alignment-column chunks with an "SV-safe boundary" search |
 | Genotype | Haploid integers (`0`, `1`, ..., `.` for missing) | Diploid phased (`1|1`) plus a custom `QI` FORMAT field encoding query coords + strand |
 | VCF builder | Hand-written `##` header and tab-joined record lines | `noodles::vcf` typed builder |
 | QC outputs | Per-contig site_summary.tsv, per-sample missing BEDs, BED mask | None beyond the VCF |
@@ -43,25 +43,25 @@ algorithms, rather than competing implementations of the same algorithm.
 
 ### ARGprep — reference-anchored, per-position scan
 
-For each sample, [load_sample_calls](scripts/maf_to_sites.py#L207) walks the
-sample's MAF and writes integer base codes into a `bytearray` indexed by
-reference position. Reference-aligned `-` columns advance neither index and
-flag indel-adjacent reference positions; gap characters in the sample are
-recorded as missing.
+For each sample, [load_sample_calls](scripts/maf_to_sites.py) walks the sample's
+per-contig MAF and writes integer base codes into a `bytearray` indexed by
+reference position. Reference-aligned `-` columns advance neither reference
+index and flag neighboring reference positions for optional indel-adjacent
+masking; gap characters in the sample are recorded as missing.
 
-The main loop at [maf_to_sites.py:406](scripts/maf_to_sites.py#L406) then
-iterates `idx` from 0 to `contig_len`, and at every reference base:
+The main loop then scans the contig in 1 Mb chunks by stacking zero-copy NumPy
+views over the mmap-backed sample call arrays. At every reference base it:
 
 1. Reject if `ref_base` is non-ACGT.
-2. Collect each sample's call from `sample_arrays[s][idx]`; count missing.
+2. Counts missing samples from the chunked call matrix.
 3. If indel-overlapped (or adjacent and `mask_indel_adjacent_snps`), mask.
 4. If `missing > allowed_missing`, mask (distinguishing unaligned vs. missing).
 5. Otherwise emit either an invariant record (`ALT=.`, `SC=invariant`) into
    the all-sites VCF, or a variant record into both VCFs.
 
 Because the loop visits every reference position exactly once, retained
-sites + BED mask provably tile the contig — and that is checked by
-[summarize_site_and_mask_coverage](scripts/maf_to_sites.py#L315).
+sites + BED mask provably tile the contig. Production code checks this directly
+with the inline invariant `retained_total + masked_total == contig_len`.
 
 ### wgatools — alignment-column walk with run-length categories
 
@@ -87,10 +87,48 @@ extends the chunk past any gap run ≥ `svlen_cutoff` so SVs are never split.
 Negative-strand blocks emit a synthetic `<INV>` record at the block start
 and tag every nested variant with `INV_NEST=TRUE`.
 
+## Example-data comparison rerun
+
+Rerun on 2026-07-05 with the bundled `example_data/example.maf/*.maf` files,
+ARGprep's current `scripts/maf_to_sites.py`, and `wgatools 1.1.0`.
+
+Two ARGprep settings are useful for interpreting the result:
+
+- **Example/default missingness** (`max_missing_fraction: 0.0`,
+  `mask_indel_adjacent_snps: false`): ARGprep emitted 9,578 multi-sample
+  variant records. Across the eight samples, every ARGprep non-reference SNP
+  call was present in the corresponding wgatools single-sample VCF
+  (25,680 / 25,680 calls). wgatools emitted 5,114 additional SNP calls. These
+  are expected: wgatools calls from one pairwise alignment at a time, while
+  ARGprep masks a site if any other sample is missing at that reference base.
+- **Permissive missingness** (`max_missing_count: 8`,
+  `mask_indel_adjacent_snps: false`): ARGprep emitted 11,867 multi-sample
+  variant records. All wgatools SNP positions and alleles were recovered by
+  ARGprep for every sample: 30,794 / 30,794 shared SNP calls, with zero REF/ALT
+  mismatches.
+
+Per-sample SNP counts from the strict example setting:
+
+| Sample | ARGprep non-ref SNPs | wgatools SNPs | Shared | wgatools-only |
+|---|---:|---:|---:|---:|
+| sample1 | 3,254 | 3,923 | 3,254 | 669 |
+| sample2 | 3,194 | 3,872 | 3,194 | 678 |
+| sample3 | 3,226 | 3,919 | 3,226 | 693 |
+| sample4 | 3,160 | 3,768 | 3,160 | 608 |
+| sample5 | 3,186 | 3,760 | 3,186 | 574 |
+| sample6 | 3,238 | 3,826 | 3,238 | 588 |
+| sample7 | 3,232 | 3,839 | 3,232 | 607 |
+| sample8 | 3,190 | 3,887 | 3,190 | 697 |
+| **Total** | **25,680** | **30,794** | **25,680** | **5,114** |
+
+wgatools also emitted 550 INS and 684 DEL records across the eight example
+VCFs. ARGprep intentionally represents indel-affected reference positions in
+the BED masks rather than as VCF indel records.
+
 ## Would they make the same SNP calls?
 
 Restricted to the same single pairwise MAF (one sample vs. reference), the
-two tools will not produce identical SNP call sets. The disagreements are
+two tools will not necessarily produce identical SNP call sets. The disagreements are
 concentrated at:
 
 1. **Indel-adjacent SNPs.** With `mask_indel_adjacent_snps: true` (off by
@@ -104,7 +142,7 @@ concentrated at:
    so `N` vs. `A` is an `X` column and gets emitted as a SNP record
    (with `N` in REF or ALT).
 3. **Overlapping or duplicate alignment blocks.** ARGprep's
-   [`_assign_code`](scripts/maf_to_sites.py#L198) collapses conflicting
+   [`_assign_code`](scripts/maf_to_sites.py) collapses conflicting
    calls at the same reference position into `?` (missing), so the site
    cannot be called as a SNP. wgatools walks each block independently;
    overlapping blocks can yield duplicate or contradictory records.
