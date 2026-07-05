@@ -1,0 +1,26 @@
+Bootstrap: docker
+From: condaforge/mambaforge:latest
+
+%files
+    argprep.yml /opt/argprep.yml
+    Snakefile /opt/argprep/Snakefile
+    scripts/ /opt/argprep/scripts
+    tests/ /opt/argprep/tests
+    example_data/ /opt/argprep/example_data
+    profiles/ /opt/argprep/profiles
+
+%post
+    mamba env create -f /opt/argprep.yml
+    mamba clean -afy
+
+%environment
+    export PATH="/opt/conda/envs/argprep/bin:$PATH"
+    export XDG_CACHE_HOME=/tmp
+
+%runscript
+    exec "$@"
+
+%test
+    export XDG_CACHE_HOME=/tmp
+    cd /opt/argprep
+    pytest -q -p no:cacheprovider
