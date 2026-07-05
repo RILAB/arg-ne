@@ -202,6 +202,24 @@ The `site_summary.tsv` contains one metric per row with columns `metric` and `va
 
 The pipeline still validates that retained sites plus the mask span each contig exactly, but that check is now internal and is no longer written as a separate `coverage.txt` file.
 
+### Preparing inputs for ARG inference
+
+The variant-only VCF (`sites/combined.<contig>.vcf`) is a standard VCF and can be fed to downstream ARG-inference tools directly or after a light conversion. ARGprep does not need to produce a genetic/recombination map — that is an independent biological input the inference tool takes separately (a scalar rate for ARGweaver, a `--map` file for Relate).
+
+**Relate.** Convert the variant VCF to Relate's haps/sample format with the `RelateFileFormats` helper that ships with Relate:
+
+```bash
+RelateFileFormats \
+  --mode ConvertFromVcf \
+  --haps combined.<contig>.haps \
+  --sample combined.<contig>.sample \
+  -i sites/combined.<contig>     # reads sites/combined.<contig>.vcf
+```
+
+You then supply Relate itself with a genetic map (`--map`) and mutation/recombination rates at run time; a flat constant-rate map is fine if you have no measured map. See the [Relate documentation](https://myersgroup.github.io/relate/) for the full pipeline (`PrepareInputFiles`, ancestral-allele polarization, and mask handling — the per-contig `mask.bed` can seed the accessibility mask).
+
+> **Note:** ARGprep emits a single-allele haploid `GT` per sample. Relate is designed around phased haplotype data, so verify the converted `.haps` treats each sample as one haplotype as you expect before running a large analysis.
+
 ## Testing
 
 ```bash
