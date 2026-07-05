@@ -48,6 +48,7 @@ RESULTS_DIR = Path(config.get("results_dir", "results")).resolve()
 ALLOW_MULTIALLELIC = _config_bool(config.get("allow_multiallelic_snps", True))
 MASK_INDEL_ADJACENT_SNPS = _config_bool(config.get("mask_indel_adjacent_snps", False))
 ADD_REF = _config_bool(config.get("add_ref", False))
+EMIT_ARGWEAVER_SITES = _config_bool(config.get("emit_argweaver_sites", False))
 MAX_MISSING_COUNT = config.get("max_missing_count")
 MAX_MISSING_FRACTION = config.get("max_missing_fraction")
 
@@ -265,6 +266,10 @@ def _direct_mask_out(contig):
     return Path(str(_direct_prefix(contig)) + ".mask.bed")
 
 
+def _direct_sites_out(contig):
+    return Path(str(_direct_prefix(contig)) + ".sites")
+
+
 def _direct_sample_missing_mask_out(contig, sample):
     return RESULTS_DIR / "sites" / f"combined.{contig}.{sample}.missing.bed"
 
@@ -274,7 +279,7 @@ def _split_sample_dir(sample):
 
 
 def _split_sample_contig_maf(sample, contig):
-    return _split_sample_dir(sample) / f"{contig}.maf"
+    return _split_sample_dir(sample) / f"{contig}.maf.gz"
 
 
 def _all_targets(_wc):
@@ -284,6 +289,7 @@ def _all_targets(_wc):
         + [str(_direct_variants_out(c)) for c in contigs]
         + [str(_direct_mask_out(c)) for c in contigs]
         + [str(_direct_sample_missing_mask_out(c, s)) for c in contigs for s in SAMPLES]
+        + ([str(_direct_sites_out(c)) for c in contigs] if EMIT_ARGWEAVER_SITES else [])
         + [str(RESULTS_DIR / "summary.html")]
     )
 
@@ -356,6 +362,11 @@ rule direct_maf_sites:
             str(RESULTS_DIR / "sites" / "combined.{{contig}}.{sample}.missing.bed"),
             sample=SAMPLES,
         ),
+        **(
+            {"sites": str(RESULTS_DIR / "sites" / "combined.{contig}.sites")}
+            if EMIT_ARGWEAVER_SITES
+            else {}
+        ),
     params:
         maf_dir=str(MAF_DIR),
         maf_paths=lambda wc: " ".join(
@@ -374,6 +385,7 @@ rule direct_maf_sites:
         allow_multiallelic=ALLOW_MULTIALLELIC,
         mask_indel_adjacent_snps=MASK_INDEL_ADJACENT_SNPS,
         add_ref=ADD_REF,
+        emit_argweaver_sites=EMIT_ARGWEAVER_SITES,
         quality_bed_dir=("" if QUALITY_BED_DIR is None else str(QUALITY_BED_DIR)),
         quality_min=("" if QUALITY_MIN is None else QUALITY_MIN),
         out_prefix=lambda wc: str(_direct_prefix(wc.contig)),
@@ -402,6 +414,9 @@ rule direct_maf_sites:
         fi
         if [ "{params.add_ref}" = "True" ]; then
           cmd+=(--add-ref)
+        fi
+        if [ "{params.emit_argweaver_sites}" = "True" ]; then
+          cmd+=(--emit-argweaver-sites)
         fi
         if [ -n "{params.quality_bed_dir}" ]; then
           cmd+=(--quality-bed-dir "{params.quality_bed_dir}" --quality-min "{params.quality_min}")

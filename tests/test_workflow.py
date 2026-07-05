@@ -84,8 +84,8 @@ def test_workflow_remaps_requested_contigs_to_reference_names(tmp_path: Path) ->
 
     all_sites = tmp_path / "results" / "sites" / "combined.1.all_sites.vcf"
     assert all_sites.exists()
-    assert (tmp_path / "results" / "maf_by_contig" / "s1" / "1.maf").exists()
-    assert (tmp_path / "results" / "maf_by_contig" / "s2" / "1.maf").exists()
+    assert (tmp_path / "results" / "maf_by_contig" / "s1" / "1.maf.gz").exists()
+    assert (tmp_path / "results" / "maf_by_contig" / "s2" / "1.maf.gz").exists()
     assert not (tmp_path / "results" / "sites" / "combined.chr01.all_sites.vcf").exists()
 
     records = [
@@ -226,6 +226,88 @@ def test_workflow_add_ref_appends_reference_sample_to_final_vcfs(tmp_path: Path)
     assert all_records[0][9:] == ["0", "0", "0"]
     assert all_records[1][9:] == ["0", "1", "0"]
     assert variant_records[0][9:] == ["0", "1", "0"]
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("snakemake") is None,
+    reason="snakemake is not installed in the test environment",
+)
+def test_workflow_emit_argweaver_sites(tmp_path: Path) -> None:
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">1\nACGT\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "1", "ACGT", "s1", "ACGT")
+    _write_pairwise_maf(maf_dir / "s2.maf", "1", "ACGT", "s2", "AGGT")
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "\n".join(
+            [
+                "maf_dir: maf",
+                "reference_fasta: ref.fa",
+                "results_dir: results",
+                'samples: ["s1", "s2"]',
+                "max_missing_count: 0",
+                "emit_argweaver_sites: true",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_snakemake(tmp_path, config, str(tmp_path / "results" / "summary.html"))
+    assert result.returncode == 0, result.stderr
+
+    sites = tmp_path / "results" / "sites" / "combined.1.sites"
+    assert sites.exists()
+    lines = [ln for ln in sites.read_text(encoding="utf-8").splitlines() if ln]
+    assert lines[0] == "NAMES\ts1\ts2"
+    assert lines[1] == "REGION\t1\t1\t4"
+    site_positions = [ln.split("\t")[0] for ln in lines[2:]]
+
+    variants = tmp_path / "results" / "sites" / "combined.1.vcf"
+    variant_positions = [
+        ln.split("\t")[1]
+        for ln in variants.read_text(encoding="utf-8").splitlines()
+        if ln and not ln.startswith("#")
+    ]
+    assert site_positions == variant_positions
+    assert lines[2:] == ["2\tCG"]
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("snakemake") is None,
+    reason="snakemake is not installed in the test environment",
+)
+def test_workflow_omits_argweaver_sites_by_default(tmp_path: Path) -> None:
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">1\nACGT\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "1", "ACGT", "s1", "ACGT")
+    _write_pairwise_maf(maf_dir / "s2.maf", "1", "ACGT", "s2", "AGGT")
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "\n".join(
+            [
+                "maf_dir: maf",
+                "reference_fasta: ref.fa",
+                "results_dir: results",
+                'samples: ["s1", "s2"]',
+                "max_missing_count: 0",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_snakemake(tmp_path, config, str(tmp_path / "results" / "summary.html"))
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / "results" / "sites" / "combined.1.sites").exists()
 
 
 @pytest.mark.skipif(
