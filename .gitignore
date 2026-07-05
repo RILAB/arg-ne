@@ -1,4 +1,6 @@
 .DS_Store
+.claude/
+.codex
 scripts/__pycache__/
 *.bak
 gvcf/*
