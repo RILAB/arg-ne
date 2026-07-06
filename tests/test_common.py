@@ -20,6 +20,10 @@ from scripts.common import normalize_contig
         (" ChrX ", "x"),
         ("000", "0"),
         ("chr000", "0"),
+        ("Zm-B73v5.chr5", "5"),
+        ("Zx-TIL25.chr2", "2"),
+        ("Zm-B73v5.chr02", "2"),
+        ("NC_050096.1", "nc_050096.1"),
     ],
 )
 def test_normalize_contig_handles_common_aliases(raw: str, expected: str) -> None:

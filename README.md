@@ -71,6 +71,7 @@ Contig and sample selection behavior:
 - If both `<sample>.maf` and `<sample>.maf.gz` exist, `<sample>.maf` is used.
 - If `contigs` is omitted, the workflow uses the intersection of contigs present in all selected MAFs.
 - Requested contigs are matched to reference `.fai` contigs with normalization (for example `chr01` can map to `1` when unambiguous).
+- Contig names are normalized before matching, so MAFs (or reference FASTAs) that differ only in casing, a leading `chr`, or an assembly/genome prefix are treated as the same contig. An assembly prefix is stripped only when it precedes a `chr` token, so `chr2`, `Zm-B73v5.chr2`, and `Zx-TIL25.chr2` all resolve to contig `2`. Accession-style names such as `NC_050096.1` (where `.1` is a version suffix, not a prefix) are left intact. All MAFs must still be aligned to the same reference genome — normalization only reconciles cosmetic naming differences, it does not make coordinates from different references comparable.
 - Requested contigs that are unmatched or ambiguous after normalization are skipped.
 - The workflow errors only if no contigs remain after resolution.
 

@@ -30,6 +30,12 @@ def open_fasta(path: Path) -> TextIO:
 
 def normalize_contig(name: str) -> str:
     name = name.strip().lower()
+    if "." in name and name.rsplit(".", 1)[-1].startswith("chr"):
+        # Drop an assembly/genome prefix that precedes a "chr" contig token,
+        # e.g. "Zm-B73v5.chr5" -> "chr5" or "Zx-TIL25.chr2" -> "chr2".
+        # Gated on the "chr" token so accession-style names such as
+        # "NC_050096.1" (where ".1" is a version suffix) are left untouched.
+        name = name.rsplit(".", 1)[-1]
     name = re.sub(r"^chr", "", name, flags=re.IGNORECASE)
     m = re.match(r"^(.*?)(\d+)$", name)
     if m:
