@@ -120,8 +120,11 @@ def _quality_bed_inputs():
 def _discover_samples():
     if "samples" in config:
         return list(config["samples"])
-    maf_pattern = str(MAF_DIR / "{sample}.maf")
-    maf_gz_pattern = str(MAF_DIR / "{sample}.maf.gz")
+    # Constrain {sample} so it cannot span "/": glob_wildcards otherwise
+    # descends into subdirectories of maf_dir (e.g. an example_data/ tree),
+    # pulling in nested MAFs as bogus samples.
+    maf_pattern = str(MAF_DIR / "{sample,[^/]+}.maf")
+    maf_gz_pattern = str(MAF_DIR / "{sample,[^/]+}.maf.gz")
     samples = set(glob_wildcards(maf_pattern).sample)
     samples.update(glob_wildcards(maf_gz_pattern).sample)
     return sorted(samples)

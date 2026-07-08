@@ -5,6 +5,10 @@ v1.0 was a full rewrite from the legacy TASSEL/gVCF/GATK pipeline — the
 pre-v1.0 (`v0.x`) entries at the bottom describe that older lineage and do not
 carry forward to the v1.x series.
 
+## Unreleased
+
+- Sample auto-discovery is now non-recursive: `*.maf` / `*.maf.gz` are matched only directly in `maf_dir`, not in nested subdirectories. Previously the `{sample}` wildcard could span `/`, so pointing `maf_dir` at a directory that also contained an `example_data/example.maf/` tree (or any nested MAFs) pulled those in as bogus samples, whose contigs failed to intersect and triggered "No contigs are shared across all MAF files."
+
 ## v1.8
 
 - Added optional ARGweaver `.sites` output. Set `emit_argweaver_sites: true` to also emit `sites/combined.<contig>.sites` (variant sites only; one real base per pseudo-haploid sample, `N` for missing) alongside the VCFs. Disabled by default, so existing runs are unchanged. When `add_ref` is set, the synthetic REF haplotype is appended as the final column. The variant-site set matches `sites/combined.<contig>.vcf`.

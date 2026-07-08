@@ -67,7 +67,7 @@ Advanced override:
 
 Contig and sample selection behavior:
 
-- If `samples` is omitted, samples are auto-discovered from both `*.maf` and `*.maf.gz` in `maf_dir`.
+- If `samples` is omitted, samples are auto-discovered from `*.maf` and `*.maf.gz` directly in `maf_dir` (non-recursive — nested subdirectories are ignored). Point `maf_dir` at a directory containing only your input MAFs; avoid parent directories that also hold example data or other `.maf` files.
 - If both `<sample>.maf` and `<sample>.maf.gz` exist, `<sample>.maf` is used.
 - If `contigs` is omitted, the workflow uses the intersection of contigs present in all selected MAFs.
 - Requested contigs are matched to reference `.fai` contigs with normalization (for example `chr01` can map to `1` when unambiguous).
