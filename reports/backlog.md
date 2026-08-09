@@ -52,11 +52,30 @@ re-checked in the source at that point, not carried over on faith.
   it on read.
 - **Feature question — should soft-masked repeats be excludable?** The behavior
   (upper-case everything, so lowercase repeat bases are genotyped normally;
-  `maf_to_sites.py:398` and `read_contig_sequence`) is now documented in the
-  README as of v1.9, which closes the "confirm intent" half. What remains is a
-  product decision: whether to add a config flag that treats soft-masked
-  reference bases as missing. Today the workarounds are a hard-masked reference
-  or repeat intervals via `quality_bed_dir`.
+  `maf_to_sites.py:398` and `read_contig_sequence`) is documented in the README
+  as of v1.9, which closes the "confirm intent" half. What remains is a product
+  decision: whether to add a config flag that treats soft-masked reference bases
+  as missing. Today the workarounds are a hard-masked reference or repeat
+  intervals via `quality_bed_dir`.
+
+  Narrowed 2026-08-09: only the **reference FASTA** path is live. Reference bases
+  come from `read_contig_sequence` (`maf_to_sites.py:555,662`), not from the MAF,
+  so a soft-masked `reference_fasta` has its repeat content genotyped regardless
+  of the aligner. The query path is moot in practice — scanning a real AnchorWave
+  MAF found no lowercase in the sequence rows, so case is already lost upstream
+  and the `.upper()` on sample rows is a no-op. (Sampled, not exhaustive, and a
+  query genome that was never soft-masked would look the same.)
+
+  Two follow-ups, both optional:
+  - The README note says "reference and query sequences are upper-cased", which
+    is true but implies a query-side concern that does not arise for AnchorWave
+    input. Consider narrowing it to the reference, or keep it as documentation of
+    what happens with MAFs from other aligners. Deliberately left as-is for v1.9.
+  - Note that `.upper()` is load-bearing, not cosmetic: without it a lowercase
+    base fails the `VALID_BASES` check and is assigned `?`, i.e. **missing**. Any
+    "exclude soft-masked repeats" flag should mask them explicitly rather than
+    reach that behavior by dropping the upper-casing, so the two causes stay
+    distinguishable in the summary counters.
 - **Low — split normalization collision aborts with no override** *(verified
   open)*. `split_maf_by_contig.py:47` raises on an ambiguous normalized contig
   with no way to force a mapping.
