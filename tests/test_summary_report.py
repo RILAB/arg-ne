@@ -7,20 +7,18 @@ def test_summary_report_html_contains_separate_plots_per_contig(tmp_path: Path):
     fai = tmp_path / "ref.fa.fai"
     fai.write_text("chr1\t10\t0\t0\t0\nchr2\t8\t0\t0\t0\nscaffold99\t500\t0\t0\t0\n", encoding="utf-8")
 
-    all_sites = tmp_path / "combined.all_sites.vcf"
-    all_sites.write_text(
-        "##fileformat=VCFv4.2\n"
-        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n"
-        "chr1\t1\t.\tA\t.\t.\tPASS\tNS=1;MS=0;SC=invariant\tGT\t0\n"
-        "chr1\t2\t.\tC\tT\t.\tPASS\tNS=1;MS=0;SC=variant\tGT\t1\n"
-        "chr1\t5\t.\tG\t.\t.\tPASS\tNS=1;MS=0;SC=invariant\tGT\t0\n"
-        "chr2\t2\t.\tT\t.\t.\tPASS\tNS=1;MS=0;SC=invariant\tGT\t0\n"
-        "chr2\t3\t.\tA\tG\t.\tPASS\tNS=1;MS=0;SC=variant\tGT\t1\n",
+    report_stats = tmp_path / "combined.report_stats.tsv"
+    report_stats.write_text(
+        "record_type\tcontig\tstart\tend\tsample\tinvariant\tvariant\tmasked\tcalled\tcarried_variant\n"
+        "window\tchr1\t0\t4\t\t1\t1\t2\t\t\n"
+        "window\tchr1\t4\t8\t\t1\t0\t3\t\t\n"
+        "window\tchr1\t8\t10\t\t0\t0\t2\t\t\n"
+        "sample\tchr1\t\t\ts1\t\t\t\t3\t1\n"
+        "window\tchr2\t0\t4\t\t1\t1\t2\t\t\n"
+        "window\tchr2\t4\t8\t\t0\t0\t4\t\t\n"
+        "sample\tchr2\t\t\ts1\t\t\t\t2\t1\n",
         encoding="utf-8",
     )
-
-    masked = tmp_path / "combined.mask.bed"
-    masked.write_text("chr1\t2\t4\nchr1\t5\t10\nchr2\t4\t8\n", encoding="utf-8")
 
     summary1 = tmp_path / "combined.chr1.site_summary.tsv"
     summary1.write_text(
@@ -67,10 +65,8 @@ def test_summary_report_html_contains_separate_plots_per_contig(tmp_path: Path):
             "4",
             "--report-out",
             str(report),
-            "--all-sites",
-            str(all_sites),
-            "--masked-beds",
-            str(masked),
+            "--report-stats",
+            str(report_stats),
             "--site-summaries",
             str(summary1),
             str(summary2),
@@ -103,19 +99,16 @@ def test_summary_report_per_maf_section(tmp_path: Path):
     fai = tmp_path / "ref.fa.fai"
     fai.write_text("chr1\t10\t0\t0\t0\n", encoding="utf-8")
 
-    all_sites = tmp_path / "combined.chr1.all_sites.vcf"
-    all_sites.write_text(
-        "##fileformat=VCFv4.2\n"
-        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2\tREF\n"
-        "chr1\t1\t.\tA\t.\t.\tPASS\tNS=2;MS=0;SC=invariant\tGT:DP\t0:4\t0:4\t0:4\n"
-        "chr1\t2\t.\tC\tT\t.\tPASS\tNS=2;MS=0;SC=variant\tGT:DP\t1:3\t0:3\t0:3\n"
-        "chr1\t3\t.\tG\tA\t.\tPASS\tNS=2;MS=0;SC=variant\tGT:DP\t1:3\t1:3\t0:3\n"
-        "chr1\t5\t.\tG\t.\t.\tPASS\tNS=1;MS=1;SC=invariant\tGT:DP\t0:3\t.:0\t0:3\n",
+    report_stats = tmp_path / "combined.chr1.report_stats.tsv"
+    report_stats.write_text(
+        "record_type\tcontig\tstart\tend\tsample\tinvariant\tvariant\tmasked\tcalled\tcarried_variant\n"
+        "window\tchr1\t0\t4\t\t1\t2\t1\t\t\n"
+        "window\tchr1\t4\t8\t\t1\t0\t3\t\t\n"
+        "window\tchr1\t8\t10\t\t0\t0\t2\t\t\n"
+        "sample\tchr1\t\t\ts1\t\t\t\t4\t2\n"
+        "sample\tchr1\t\t\ts2\t\t\t\t3\t1\n",
         encoding="utf-8",
     )
-
-    masked = tmp_path / "combined.chr1.mask.bed"
-    masked.write_text("chr1\t6\t10\n", encoding="utf-8")
 
     summary1 = tmp_path / "combined.chr1.site_summary.tsv"
     summary1.write_text(
@@ -148,8 +141,7 @@ def test_summary_report_per_maf_section(tmp_path: Path):
             "--fai", str(fai),
             "--window-bp", "4",
             "--report-out", str(report),
-            "--all-sites", str(all_sites),
-            "--masked-beds", str(masked),
+            "--report-stats", str(report_stats),
             "--site-summaries", str(summary1),
             "--sample-missing-beds", str(bed_s1), str(bed_s2),
             "--options-yaml", str(options_yaml),

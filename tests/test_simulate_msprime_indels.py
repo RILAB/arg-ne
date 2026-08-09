@@ -10,7 +10,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.simulate_msprime_indels import (
     IndelEvent,
     MafBlock,
-    apply_indel_events,
     align_sample_to_reference,
     canonicalize_sample_events,
     sample_indel_events_on_ts,
@@ -19,20 +18,6 @@ from scripts.simulate_msprime_indels import (
     summarize_reference_overlaps,
     write_maf,
 )
-
-
-def test_apply_indel_events_mixes_insertions_and_deletions():
-    sequence = "ACGTAC"
-    events = [
-        IndelEvent(sample="s1", shared_event_id=1, event_index=1, event_type="ins", position_1based=3, size=2, sequence="TT"),
-        IndelEvent(sample="s1", shared_event_id=2, event_index=2, event_type="del", position_1based=6, size=2, sequence=""),
-    ]
-
-    new_sequence, applied = apply_indel_events(sequence, events)
-
-    assert new_sequence == "ACTTGTA"
-    assert [event.event_type for event in applied] == ["ins", "del"]
-    assert applied[1].sequence == "C"
 
 
 def test_sample_lineage_event_duplicates_shared_event_for_descendants():

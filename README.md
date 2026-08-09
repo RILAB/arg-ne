@@ -51,7 +51,6 @@ Optional controls (defaults shown):
 
 SLURM resource overrides (for the `direct_maf_sites` rule):
 
-- `maf_threads: 1`
 - `maf_mem_mb: 48000`
 - `maf_time: "24:00:00"`
 
@@ -72,8 +71,8 @@ Contig and sample selection behavior:
 - If `contigs` is omitted, the workflow uses the intersection of contigs present in all selected MAFs.
 - Requested contigs are matched to reference `.fai` contigs with normalization (for example `chr01` can map to `1` when unambiguous).
 - Contig names are normalized before matching, so MAFs (or reference FASTAs) that differ only in casing, a leading `chr`, or an assembly/genome prefix are treated as the same contig. An assembly prefix is stripped only when it precedes a `chr` token, so `chr2`, `Zm-B73v5.chr2`, and `Zx-TIL25.chr2` all resolve to contig `2`. Accession-style names such as `NC_050096.1` (where `.1` is a version suffix, not a prefix) are left intact. All MAFs must still be aligned to the same reference genome — normalization only reconciles cosmetic naming differences, it does not make coordinates from different references comparable.
-- Requested contigs that are unmatched or ambiguous after normalization are skipped.
-- The workflow errors only if no contigs remain after resolution.
+- Every explicitly configured `contigs` entry must match exactly or resolve through one unambiguous normalized alias; otherwise the workflow fails and lists the unresolved names.
+- During automatic discovery, unmatched or ambiguous contigs are skipped with a warning, and the workflow fails if no contigs remain.
 
 Example CLI override:
 
@@ -157,7 +156,7 @@ run), but it is then vulnerable to being killed:
 snakemake --profile profiles/slurm --configfile options.yaml --rerun-incomplete
 ```
 
-When using the SLURM profile, set `slurm_account` and `slurm_partition` in your config file. Slurm defaults for other resources are defined in `profiles/slurm/config.yaml`. Parsing the MAFs is the most computationally expensive step in the pipeline, and direct-maf rule resources can be overridden in `options.yaml` (`maf_threads`, `maf_mem_mb`, `maf_time`).
+When using the SLURM profile, set `slurm_account` and `slurm_partition` in your config file. Slurm defaults for other resources are defined in `profiles/slurm/config.yaml`. Parsing the MAFs is the most computationally expensive step in the pipeline, and direct-maf rule resources can be overridden in `options.yaml` (`maf_mem_mb`, `maf_time`). Site calling is single-threaded, so each per-contig job requests one core.
 
 ### Try it on the bundled example
 
@@ -177,12 +176,17 @@ Outputs are written under `results/` by default (or under `results_dir` if provi
 - `sites/combined.<contig>.vcf` — variant-only subset of `all_sites.vcf`
 - `sites/combined.<contig>.mask.bed` — merged BED intervals for masked positions
 - `sites/combined.<contig>.site_summary.tsv` — per-contig counts (see table below)
+- `sites/combined.<contig>.report_stats.tsv` — compact window and per-sample counters used to build `summary.html`; the report does not rescan `all_sites.vcf`
 - `sites/combined.<contig>.sites` — ARGweaver-format sites file (variant sites only; one real base per pseudo-haploid sample, `N` for missing). Emitted only when `emit_argweaver_sites: true`
 - `sites/combined.<contig>.<sample>.missing.bed` — per-sample missing regions used by per-MAF summary stats; 4-column BED (`chrom`, `start`, `end`, `sample`)
 - `summary.html` — genome-wide overview plus per-MAF tables and per-contig per-MAF breakdowns
 - `maf_by_contig/<sample>/<contig>.maf.gz` — intermediate per-contig MAF chunks produced by the `split_sample_maf` stage (each per-sample MAF is partitioned by reference contig so site calling reads only the relevant slice, and chunks are gzip-compressed to avoid duplicating the alignment corpus uncompressed); these are regenerable intermediates, not final outputs
 
 Both VCFs share the same header and use a single haploid `GT` per sample (`0` for the REF allele, `1`/`2`/... for ALTs in `ALT` order, `.` for missing). `INFO` carries `NS` (non-missing samples), `MS` (missing samples), and `SC` (`invariant` or `variant`). All retained sites are emitted with `FILTER=PASS`; filtered-out positions appear in the BED mask, not the VCFs.
+
+`all_sites.vcf` remains a required scientific output containing invariant as well as variant retained sites. Report statistics are accumulated during the same calling pass and written separately so generating `summary.html` does not reread the large VCF.
+
+Optional `.sites` files are generated only when enabled. Disabling `emit_argweaver_sites` in a results directory previously used with it does not delete stale `.sites` files; start from a clean results directory when changing output modes if that distinction matters.
 
 The `site_summary.tsv` contains one metric per row with columns `metric` and `value`:
 

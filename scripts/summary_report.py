@@ -9,12 +9,12 @@ from datetime import datetime
 from pathlib import Path
 
 try:
-    from scripts.common import merge_intervals, open_text
+    from scripts.common import open_text
 except ModuleNotFoundError:
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from scripts.common import merge_intervals, open_text
+    from scripts.common import open_text
 
 
 def read_fai_lengths(path: Path) -> dict[str, int]:
@@ -56,80 +56,64 @@ def window_midpoints(length: int, window_bp: int) -> list[int]:
     return mids
 
 
-def read_all_sites_stats(
+def read_report_stats(
     path: Path,
     lengths: dict[str, int],
     window_bp: int,
 ) -> tuple[
     dict[str, list[int]],
     dict[str, list[int]],
+    dict[str, list[int]],
     list[str],
     dict[str, dict[str, int]],
     dict[str, dict[str, int]],
-    dict[str, dict[str, int]],
 ]:
-    """Single pass over one all_sites VCF.
-
-    Returns:
-      invariant_by_contig: window-binned invariant site counts
-      variant_by_contig:   window-binned variant site counts
-      samples:             sample column order from the VCF header
-      per_sample_variant_by_contig: contig -> sample -> sites where sample carries non-ref
-      per_sample_missing_retained_by_contig: contig -> sample -> retained sites where sample is missing (GT=.)
-      per_sample_called_by_contig: contig -> sample -> retained sites where sample has a call (ref or alt)
-    """
+    """Read compact window and per-sample counters emitted by maf_to_sites."""
     invariant: dict[str, list[int]] = {}
     variant: dict[str, list[int]] = {}
+    masked: dict[str, list[int]] = {}
     samples: list[str] = []
     per_sample_variant: dict[str, dict[str, int]] = {}
-    per_sample_missing: dict[str, dict[str, int]] = {}
     per_sample_called: dict[str, dict[str, int]] = {}
 
-    with open_text(path, "rt", errors="ignore") as handle:
-        for line in handle:
+    with path.open("r", encoding="utf-8") as handle:
+        header = handle.readline().rstrip("\n").split("\t")
+        expected = [
+            "record_type", "contig", "start", "end", "sample",
+            "invariant", "variant", "masked", "called", "carried_variant",
+        ]
+        if header != expected:
+            raise ValueError(f"Unexpected report-stats header in {path}: {header!r}")
+        for line_number, line in enumerate(handle, start=2):
             if not line.strip():
                 continue
-            if line.startswith("#CHROM"):
-                header_parts = line.rstrip("\n").split("\t")
-                if len(header_parts) > 9:
-                    samples = header_parts[9:]
-                continue
-            if line.startswith("#"):
-                continue
             parts = line.rstrip("\n").split("\t")
-            if len(parts) < 5:
-                continue
-            contig = parts[0]
+            if len(parts) != len(expected):
+                raise ValueError(
+                    f"Malformed report-stats row in {path}:{line_number}; "
+                    f"expected {len(expected)} columns, found {len(parts)}"
+                )
+            record_type, contig, start, _end, sample, inv, var, mask, called, carried = parts
             length = lengths.get(contig)
             if length is None:
                 continue
-            if contig not in invariant:
-                invariant[contig] = [0] * window_count(length, window_bp)
-                variant[contig] = [0] * window_count(length, window_bp)
-            pos = int(parts[1])
-            idx = max((pos - 1) // window_bp, 0)
-            if idx >= len(invariant[contig]):
-                continue
-            is_variant = parts[4] != "."
-            if is_variant:
-                variant[contig][idx] += 1
+            if record_type == "window":
+                idx = int(start) // window_bp
+                n_windows = window_count(length, window_bp)
+                invariant.setdefault(contig, [0] * n_windows)[idx] = int(inv)
+                variant.setdefault(contig, [0] * n_windows)[idx] = int(var)
+                masked.setdefault(contig, [0] * n_windows)[idx] = int(mask)
+            elif record_type == "sample":
+                if sample not in samples:
+                    samples.append(sample)
+                per_sample_called.setdefault(contig, {})[sample] = int(called)
+                per_sample_variant.setdefault(contig, {})[sample] = int(carried)
             else:
-                invariant[contig][idx] += 1
+                raise ValueError(
+                    f"Unknown report-stats record type in {path}:{line_number}: {record_type!r}"
+                )
 
-            if samples and len(parts) >= 9 + len(samples):
-                sv = per_sample_variant.setdefault(contig, {s: 0 for s in samples})
-                sm = per_sample_missing.setdefault(contig, {s: 0 for s in samples})
-                sc = per_sample_called.setdefault(contig, {s: 0 for s in samples})
-                for s_idx, sample in enumerate(samples):
-                    gt = parts[9 + s_idx].partition(":")[0]
-                    if gt == ".":
-                        sm[sample] += 1
-                    else:
-                        sc[sample] += 1
-                        if is_variant and gt != "0":
-                            sv[sample] += 1
-
-    return invariant, variant, samples, per_sample_variant, per_sample_missing, per_sample_called
+    return invariant, variant, masked, samples, per_sample_variant, per_sample_called
 
 
 def read_sample_missing_bp(
@@ -172,39 +156,6 @@ def read_sample_missing_bp(
                 if span:
                     data[matched][contig] = data[matched].get(contig, 0) + span
     return data
-
-
-def read_mask_percentages(
-    path: Path,
-    lengths: dict[str, int],
-    window_bp: int,
-) -> dict[str, list[int]]:
-    masked: dict[str, list[int]] = {}
-    with path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            if not line.strip() or line.startswith("#"):
-                continue
-            parts = line.rstrip("\n").split("\t")
-            if len(parts) < 3:
-                continue
-            contig = parts[0]
-            length = lengths.get(contig)
-            if length is None:
-                continue
-            if contig not in masked:
-                masked[contig] = [0] * window_count(length, window_bp)
-            start = int(parts[1])
-            end = int(parts[2])
-            pos = start
-            while pos < end:
-                idx = pos // window_bp
-                if idx >= len(masked[contig]):
-                    break
-                window_end = min((idx + 1) * window_bp, length)
-                span_end = min(end, window_end)
-                masked[contig][idx] += max(span_end - pos, 0)
-                pos = span_end
-    return masked
 
 
 def to_percentages(counts: list[int], length: int, window_bp: int) -> list[float]:
@@ -471,8 +422,7 @@ def get_argprep_version() -> str:
 
 
 def build_report(
-    all_sites_paths: list[Path],
-    mask_paths: list[Path],
+    report_stats_paths: list[Path],
     summary_paths: list[Path],
     fai: Path,
     window_bp: int,
@@ -487,11 +437,10 @@ def build_report(
     summaries: dict[str, dict[str, str]] = {}
     sample_order: list[str] = []
     sample_variant_by_contig: dict[str, dict[str, int]] = {}
-    sample_missing_retained_by_contig: dict[str, dict[str, int]] = {}
     sample_called_by_contig: dict[str, dict[str, int]] = {}
 
-    for path in all_sites_paths:
-        inv, var, samples, sv, sm, sc = read_all_sites_stats(path, lengths, window_bp)
+    for path in report_stats_paths:
+        inv, var, masked, samples, sv, sc = read_report_stats(path, lengths, window_bp)
         if samples and not sample_order:
             sample_order = list(samples)
         for contig, values in inv.items():
@@ -500,19 +449,11 @@ def build_report(
                 variant_counts[contig] = [0] * len(values)
             invariant_counts[contig] = [a + b for a, b in zip(invariant_counts[contig], values)]
             variant_counts[contig] = [a + b for a, b in zip(variant_counts[contig], var[contig])]
+            masked_counts[contig] = [a + b for a, b in zip(masked_counts.get(contig, [0] * len(values)), masked[contig])]
         for contig, d in sv.items():
             sample_variant_by_contig.setdefault(contig, {}).update(d)
-        for contig, d in sm.items():
-            sample_missing_retained_by_contig.setdefault(contig, {}).update(d)
         for contig, d in sc.items():
             sample_called_by_contig.setdefault(contig, {}).update(d)
-
-    for path in mask_paths:
-        masked = read_mask_percentages(path, lengths, window_bp)
-        for contig, values in masked.items():
-            if contig not in masked_counts:
-                masked_counts[contig] = [0] * len(values)
-            masked_counts[contig] = [a + b for a, b in zip(masked_counts[contig], values)]
 
     for path in summary_paths:
         values = read_site_summary(path)
@@ -849,8 +790,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--fai", required=True)
     ap.add_argument("--window-bp", type=int, default=100000)
     ap.add_argument("--report-out", required=True)
-    ap.add_argument("--all-sites", nargs="+", required=True)
-    ap.add_argument("--masked-beds", nargs="+", required=True)
+    ap.add_argument("--report-stats", nargs="+", required=True)
     ap.add_argument("--site-summaries", nargs="+", required=True)
     ap.add_argument("--options-yaml", required=True)
     ap.add_argument(
@@ -866,8 +806,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     build_report(
-        [Path(p) for p in args.all_sites],
-        [Path(p) for p in args.masked_beds],
+        [Path(p) for p in args.report_stats],
         [Path(p) for p in args.site_summaries],
         Path(args.fai),
         args.window_bp,

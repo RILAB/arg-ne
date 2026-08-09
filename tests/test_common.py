@@ -5,7 +5,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.common import normalize_contig
+from scripts.common import normalize_contig, read_maf_contigs
 
 
 @pytest.mark.parametrize(
@@ -28,3 +28,8 @@ from scripts.common import normalize_contig
 )
 def test_normalize_contig_handles_common_aliases(raw: str, expected: str) -> None:
     assert normalize_contig(raw) == expected
+
+
+def test_read_maf_contigs_propagates_open_errors(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        read_maf_contigs(tmp_path / "missing.maf")

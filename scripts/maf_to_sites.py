@@ -93,24 +93,30 @@ def load_quality_mask(bed_path: Path, quality_min: float) -> QualityMask:
     """Build a :class:`QualityMask` from a per-sample quality BED file.
 
     Rows are ``chrom start end score`` (whitespace-separated); ``track``/
-    ``browser``/comment lines and rows with fewer than four fields are ignored.
+    ``browser``/comment lines are ignored. Malformed data rows raise an error.
     Only intervals whose score is below ``quality_min`` are retained.
     """
     raw: dict[str, list[tuple[int, int]]] = {}
     with open_text(bed_path, "rt", errors="ignore") as handle:
-        for line in handle:
+        for line_number, line in enumerate(handle, start=1):
             stripped = line.strip()
             if not stripped or stripped.startswith(("#", "track", "browser")):
                 continue
             parts = stripped.split()
             if len(parts) < 4:
-                continue
+                raise ValueError(
+                    f"Malformed quality BED row in {bed_path} at line {line_number}: "
+                    "expected at least 4 fields"
+                )
             try:
                 start = int(parts[1])
                 end = int(parts[2])
                 score = float(parts[3])
-            except ValueError:
-                continue
+            except ValueError as exc:
+                raise ValueError(
+                    f"Malformed quality BED row in {bed_path} at line {line_number}: "
+                    "start and end must be integers and score must be numeric"
+                ) from exc
             if score < quality_min:
                 raw.setdefault(parts[0], []).append((start, end))
     merged = {src: merge_intervals(intervals) for src, intervals in raw.items()}
@@ -133,6 +139,12 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--reference-fasta", required=True, help="Reference FASTA path")
     ap.add_argument("--contig", required=True, help="Reference contig to process")
     ap.add_argument("--out-prefix", required=True, help="Output prefix for this contig")
+    ap.add_argument(
+        "--window-bp",
+        type=int,
+        default=100000,
+        help="Window size for compact report statistics (default: 100000)",
+    )
     ap.add_argument(
         "--maf-paths",
         nargs="*",
@@ -275,13 +287,23 @@ def read_contig_sequence(reference_fasta: Path, contig: str) -> str:
 
 
 def iter_maf_blocks(path: Path) -> Iterator[list[MafRecord]]:
+    def validate_block(records: list[MafRecord], line_number: int) -> list[MafRecord]:
+        lengths = {len(record.text) for record in records}
+        if len(lengths) > 1:
+            raise ValueError(
+                f"Malformed MAF block in {path} ending at line {line_number}: "
+                "alignment strings have unequal lengths"
+            )
+        return records
+
     block: list[MafRecord] = []
     with open_text(path, "rt", errors="ignore") as handle:
-        for raw in handle:
+        line_number = 0
+        for line_number, raw in enumerate(handle, start=1):
             stripped = raw.strip()
             if not stripped:
                 if block:
-                    yield block
+                    yield validate_block(block, line_number)
                     block = []
                 continue
             if stripped.startswith("#"):
@@ -291,23 +313,34 @@ def iter_maf_blocks(path: Path) -> Iterator[list[MafRecord]]:
                 continue
             if parts[0] == "a":
                 if block:
-                    yield block
+                    yield validate_block(block, line_number)
                     block = []
                 continue
-            if parts[0] != "s" or len(parts) < 7:
+            if parts[0] != "s":
                 continue
-            block.append(
-                MafRecord(
-                    src=parts[1],
-                    start=int(parts[2]),
-                    size=int(parts[3]),
-                    strand=parts[4],
-                    src_size=int(parts[5]),
-                    text=parts[6],
+            if len(parts) < 7:
+                raise ValueError(
+                    f"Malformed MAF sequence row in {path} at line {line_number}: "
+                    "expected 7 fields"
                 )
-            )
+            try:
+                block.append(
+                    MafRecord(
+                        src=parts[1],
+                        start=int(parts[2]),
+                        size=int(parts[3]),
+                        strand=parts[4],
+                        src_size=int(parts[5]),
+                        text=parts[6],
+                    )
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    f"Malformed MAF sequence row in {path} at line {line_number}: "
+                    "start, size, and srcSize must be integers"
+                ) from exc
     if block:
-        yield block
+        yield validate_block(block, line_number)
 
 
 def choose_sample_record(block: list[MafRecord], contig: str) -> tuple[MafRecord, MafRecord] | None:
@@ -495,68 +528,6 @@ class IntervalBuilder:
         ]
 
 
-def write_empty_contig_outputs(
-    out_prefix: Path,
-    contig: str,
-    samples: list[str],
-    output_samples: list[str],
-    allowed_missing: int,
-    emit_argweaver_sites: bool = False,
-) -> None:
-    """Emit header-only VCFs and empty BED/summary for a zero-length contig.
-
-    A reference contig of length 0 has no positions to call; mmap'ing an empty
-    per-sample buffer would raise, so short-circuit here and write the same set
-    of (empty) outputs the normal path would produce.
-    """
-    all_sites_path = out_prefix.with_suffix(out_prefix.suffix + ".all_sites.vcf")
-    variants_path = out_prefix.with_suffix(out_prefix.suffix + ".vcf")
-    mask_path = out_prefix.with_suffix(out_prefix.suffix + ".mask.bed")
-    summary_path = out_prefix.with_suffix(out_prefix.suffix + ".site_summary.tsv")
-
-    all_sites_path.parent.mkdir(parents=True, exist_ok=True)
-    with open_text(all_sites_path, "wt") as all_sites, open_text(variants_path, "wt") as variants:
-        for line in vcf_header(contig, 0, output_samples):
-            all_sites.write(f"{line}\n")
-            variants.write(f"{line}\n")
-
-    if emit_argweaver_sites:
-        sites_path = out_prefix.with_suffix(out_prefix.suffix + ".sites")
-        write_lines(
-            sites_path,
-            [
-                "NAMES\t" + "\t".join(output_samples),
-                f"REGION\t{contig}\t1\t0",
-            ],
-        )
-
-    write_lines(mask_path, [])
-    for sample in samples:
-        write_lines(Path(str(out_prefix) + f".{sample}.missing.bed"), [])
-
-    summary_lines = [
-        "metric\tvalue",
-        f"contig\t{contig}",
-        "contig_length\t0",
-        f"samples\t{len(samples)}",
-        f"allowed_missing\t{allowed_missing}",
-    ]
-    for key in (
-        "all_sites",
-        "variants",
-        "invariant",
-        "masked_missingness",
-        "masked_indel_adjacent",
-        "masked_multiallelic",
-        "masked_no_alignment",
-        "masked_ref_non_acgt",
-    ):
-        summary_lines.append(f"{key}\t0")
-    summary_lines.append("masked_total\t0")
-    summary_lines.append("masked_intervals\t0")
-    write_lines(summary_path, summary_lines)
-
-
 def main() -> None:
     args = parse_args()
     maf_dir = Path(args.maf_dir)
@@ -564,6 +535,8 @@ def main() -> None:
     reference_fasta = Path(args.reference_fasta)
     contig = args.contig
     out_prefix = Path(args.out_prefix)
+    if args.window_bp <= 0:
+        raise ValueError("--window-bp must be a positive integer")
     samples = list(args.samples) if args.samples else discover_samples(maf_dir)
     if not samples:
         raise ValueError(f"No samples found under {maf_dir}")
@@ -581,21 +554,13 @@ def main() -> None:
 
     contig_seq = read_contig_sequence(reference_fasta, contig)
     contig_len = len(contig_seq)
+    if contig_len == 0:
+        raise ValueError(f"Reference contig '{contig}' has length 0")
     allowed_missing = missing_threshold(
         len(samples),
         args.max_missing_count,
         args.max_missing_fraction,
     )
-    if contig_len == 0:
-        write_empty_contig_outputs(
-            out_prefix,
-            contig,
-            samples,
-            output_samples,
-            allowed_missing,
-            emit_argweaver_sites=args.emit_argweaver_sites,
-        )
-        return
     with tempfile.TemporaryDirectory(prefix="argprep-calls-") as call_tmp_dir:
         sample_arrays: list[mmap.mmap] = []
         sample_array_files = []
@@ -639,6 +604,7 @@ def main() -> None:
         variants_path = out_prefix.with_suffix(out_prefix.suffix + ".vcf")
         mask_path = out_prefix.with_suffix(out_prefix.suffix + ".mask.bed")
         summary_path = out_prefix.with_suffix(out_prefix.suffix + ".site_summary.tsv")
+        report_stats_path = out_prefix.with_suffix(out_prefix.suffix + ".report_stats.tsv")
         sites_path = out_prefix.with_suffix(out_prefix.suffix + ".sites")
 
         all_sites_path.parent.mkdir(parents=True, exist_ok=True)
@@ -661,6 +627,12 @@ def main() -> None:
             masked_total = 0
             retained_total = 0
             counts: Counter[str] = Counter()
+            window_count = (contig_len + args.window_bp - 1) // args.window_bp
+            invariant_by_window = np.zeros(window_count, dtype=np.int64)
+            variant_by_window = np.zeros(window_count, dtype=np.int64)
+            masked_by_window = np.zeros(window_count, dtype=np.int64)
+            sample_called = np.zeros(len(samples), dtype=np.int64)
+            sample_carried_variant = np.zeros(len(samples), dtype=np.int64)
 
             allow_multiallelic = args.allow_multiallelic_snps
             add_ref = args.add_ref
@@ -692,6 +664,7 @@ def main() -> None:
                     if ref_base not in VALID_BASES:
                         mask_intervals.add(idx)
                         masked_total += 1
+                        masked_by_window[idx // args.window_bp] += 1
                         counts["masked_ref_non_acgt"] += 1
                         continue
 
@@ -701,6 +674,7 @@ def main() -> None:
                     if ns == 0:
                         mask_intervals.add(idx)
                         masked_total += 1
+                        masked_by_window[idx // args.window_bp] += 1
                         if has_unaligned[j]:
                             counts["masked_no_alignment"] += 1
                         else:
@@ -714,12 +688,14 @@ def main() -> None:
                     if track_indel_adjacent and alt_order and adjacent_indel_flags[idx]:
                         mask_intervals.add(idx)
                         masked_total += 1
+                        masked_by_window[idx // args.window_bp] += 1
                         counts["masked_indel_adjacent"] += 1
                         continue
 
                     if missing > allowed_missing:
                         mask_intervals.add(idx)
                         masked_total += 1
+                        masked_by_window[idx // args.window_bp] += 1
                         if has_unaligned[j]:
                             counts["masked_no_alignment"] += 1
                         else:
@@ -729,6 +705,7 @@ def main() -> None:
                     if len(alt_order) > 1 and not allow_multiallelic:
                         mask_intervals.add(idx)
                         masked_total += 1
+                        masked_by_window[idx // args.window_bp] += 1
                         counts["masked_multiallelic"] += 1
                         continue
 
@@ -738,6 +715,8 @@ def main() -> None:
                         counts["all_sites"] += 1
                         counts["invariant"] += 1
                         retained_total += 1
+                        invariant_by_window[idx // args.window_bp] += 1
+                        sample_called += ~missing_mask[:, j]
                         genotypes = [format_gt(code, alt_order) for code in call_codes]
                         if add_ref:
                             genotypes.append("0")
@@ -751,6 +730,12 @@ def main() -> None:
                     counts["all_sites"] += 1
                     counts["variants"] += 1
                     retained_total += 1
+                    variant_by_window[idx // args.window_bp] += 1
+                    called_at_site = ~missing_mask[:, j]
+                    sample_called += called_at_site
+                    sample_carried_variant += called_at_site & (
+                        block[:, j] != NUC_TO_CODE[ref_base]
+                    )
                     genotypes = [format_gt(code, alt_order) for code in call_codes]
                     if add_ref:
                         genotypes.append("0")
@@ -812,6 +797,26 @@ def main() -> None:
         summary_lines.append(f"masked_total\t{masked_total}")
         summary_lines.append(f"masked_intervals\t{len(bed_lines)}")
         write_lines(summary_path, summary_lines)
+
+        report_stats_lines = [
+            "record_type\tcontig\tstart\tend\tsample\tinvariant\tvariant\tmasked\tcalled\tcarried_variant"
+        ]
+        for window_idx in range(window_count):
+            start = window_idx * args.window_bp
+            end = min(start + args.window_bp, contig_len)
+            report_stats_lines.append(
+                f"window\t{contig}\t{start}\t{end}\t\t"
+                f"{int(invariant_by_window[window_idx])}\t"
+                f"{int(variant_by_window[window_idx])}\t"
+                f"{int(masked_by_window[window_idx])}\t\t"
+            )
+        for sample_idx, sample in enumerate(samples):
+            report_stats_lines.append(
+                f"sample\t{contig}\t\t\t{sample}\t\t\t\t"
+                f"{int(sample_called[sample_idx])}\t"
+                f"{int(sample_carried_variant[sample_idx])}"
+            )
+        write_lines(report_stats_path, report_stats_lines)
 
         # Drop every numpy view derived from the mmaps: a live frombuffer view
         # keeps an exported pointer that would make mmap.close() raise

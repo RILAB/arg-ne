@@ -170,9 +170,137 @@ def test_workflow_rejects_ambiguous_contig_remap(tmp_path: Path) -> None:
 
     result = _run_snakemake(tmp_path, config, str(tmp_path / "results" / "summary.html"))
     assert result.returncode != 0
-    assert "None of the configured contigs are present in reference .fai" in (
+    assert "unmatched or ambiguous: chr01" in (
         result.stderr + result.stdout
     )
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("snakemake") is None,
+    reason="snakemake is not installed in the test environment",
+)
+def test_workflow_rejects_any_unmatched_explicit_contig(tmp_path: Path) -> None:
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">1\nACGT\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "1", "ACGT", "s1", "ACGT")
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "\n".join(
+            [
+                "maf_dir: maf",
+                "reference_fasta: ref.fa",
+                "results_dir: results",
+                'contigs: ["1", "missing"]',
+                'samples: ["s1"]',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_snakemake(tmp_path, config, str(tmp_path / "results" / "summary.html"))
+    assert result.returncode != 0
+    assert "unmatched or ambiguous: missing" in (result.stderr + result.stdout)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("snakemake") is None,
+    reason="snakemake is not installed in the test environment",
+)
+def test_workflow_default_discovery_warns_and_skips_unmatched_contigs(tmp_path: Path) -> None:
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">1\nACGT\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    maf_text = (
+        "##maf version=1\n"
+        "a score=0\n"
+        "s chr1 0 4 + 4 ACGT\n"
+        "s s1 0 4 + 4 ACGT\n\n"
+        "a score=0\n"
+        "s chr2 0 4 + 4 ACGT\n"
+        "s s1 0 4 + 4 ACGT\n"
+    )
+    (maf_dir / "s1.maf").write_text(maf_text, encoding="utf-8")
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "\n".join(
+            [
+                "maf_dir: maf",
+                "reference_fasta: ref.fa",
+                "results_dir: results",
+                'samples: ["s1"]',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    all_sites = tmp_path / "results" / "sites" / "combined.1.all_sites.vcf"
+    result = _run_snakemake(tmp_path, config, str(all_sites))
+    assert result.returncode == 0, result.stderr
+    assert "Skipped contigs (no unambiguous match in reference .fai): 2" in (
+        result.stderr + result.stdout
+    )
+    assert all_sites.exists()
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("snakemake") is None,
+    reason="snakemake is not installed in the test environment",
+)
+@pytest.mark.parametrize(
+    ("allow_multiallelic", "expected_records", "expected_mask"),
+    [(True, 1, ""), (False, 0, "1\t0\t1")],
+)
+def test_workflow_propagates_multiallelic_policy(
+    tmp_path: Path,
+    allow_multiallelic: bool,
+    expected_records: int,
+    expected_mask: str,
+) -> None:
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">1\nA\n", encoding="utf-8")
+
+    maf_dir = tmp_path / "maf"
+    maf_dir.mkdir()
+    _write_pairwise_maf(maf_dir / "s1.maf", "1", "A", "s1", "A")
+    _write_pairwise_maf(maf_dir / "s2.maf", "1", "A", "s2", "C")
+    _write_pairwise_maf(maf_dir / "s3.maf", "1", "A", "s3", "G")
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "\n".join(
+            [
+                "maf_dir: maf",
+                "reference_fasta: ref.fa",
+                "results_dir: results",
+                'samples: ["s1", "s2", "s3"]',
+                "max_missing_count: 0",
+                f"allow_multiallelic_snps: {str(allow_multiallelic).lower()}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    all_sites = tmp_path / "results" / "sites" / "combined.1.all_sites.vcf"
+    result = _run_snakemake(tmp_path, config, str(all_sites))
+    assert result.returncode == 0, result.stderr
+
+    records = [
+        line for line in all_sites.read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
+    ]
+    assert len(records) == expected_records
+    mask = tmp_path / "results" / "sites" / "combined.1.mask.bed"
+    assert mask.read_text(encoding="utf-8").strip() == expected_mask
 
 
 @pytest.mark.skipif(
@@ -314,7 +442,7 @@ def test_workflow_omits_argweaver_sites_by_default(tmp_path: Path) -> None:
     importlib.util.find_spec("snakemake") is None,
     reason="snakemake is not installed in the test environment",
 )
-def test_workflow_disabling_argweaver_sites_removes_stale_output(tmp_path: Path) -> None:
+def test_workflow_disabling_argweaver_sites_leaves_stale_output(tmp_path: Path) -> None:
     ref = tmp_path / "ref.fa"
     ref.write_text(">1\nACGT\n", encoding="utf-8")
 
@@ -342,14 +470,14 @@ def test_workflow_disabling_argweaver_sites_removes_stale_output(tmp_path: Path)
     config.write_text("\n".join(base_config + ["emit_argweaver_sites: false"]) + "\n", encoding="utf-8")
     result = _run_snakemake(tmp_path, config, target)
     assert result.returncode == 0, result.stderr
-    assert not sites.exists()
+    assert sites.exists()
 
 
 @pytest.mark.skipif(
     importlib.util.find_spec("snakemake") is None,
     reason="snakemake is not installed in the test environment",
 )
-def test_workflow_enabling_argweaver_sites_for_summary_target_creates_output(tmp_path: Path) -> None:
+def test_workflow_enabling_argweaver_sites_creates_output_when_targeted(tmp_path: Path) -> None:
     ref = tmp_path / "ref.fa"
     ref.write_text(">1\nACGT\n", encoding="utf-8")
 
@@ -375,7 +503,7 @@ def test_workflow_enabling_argweaver_sites_for_summary_target_creates_output(tmp
     assert not sites.exists()
 
     config.write_text("\n".join(base_config + ["emit_argweaver_sites: true"]) + "\n", encoding="utf-8")
-    result = _run_snakemake(tmp_path, config, target)
+    result = _run_snakemake(tmp_path, config, str(sites))
     assert result.returncode == 0, result.stderr
     assert sites.exists()
 

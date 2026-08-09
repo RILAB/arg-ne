@@ -20,7 +20,6 @@ add_ref: false
 # quality_min: 0.9
 
 # Rule-specific resources
-maf_threads: 2
 maf_mem_mb: 96000
 maf_time: "72:00:00"
 

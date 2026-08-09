@@ -283,38 +283,6 @@ def sample_indel_events_on_ts(
     return events
 
 
-def apply_indel_events(sequence: str, events: list[IndelEvent]) -> tuple[str, list[IndelEvent]]:
-    seq = list(sequence)
-    applied: list[IndelEvent] = []
-
-    # Apply from high to low coordinates so reference-based positions remain stable.
-    for event in sorted(events, key=lambda e: (e.position_1based, e.event_index), reverse=True):
-        pos0 = max(0, min(event.position_1based - 1, len(seq)))
-        if event.event_type == "ins":
-            seq[pos0:pos0] = list(event.sequence)
-            applied.append(event)
-            continue
-
-        deleted = "".join(seq[pos0 : pos0 + event.size])
-        if not deleted:
-            continue
-        del seq[pos0 : pos0 + len(deleted)]
-        applied.append(
-            IndelEvent(
-                sample=event.sample,
-                shared_event_id=event.shared_event_id,
-                event_index=event.event_index,
-                event_type=event.event_type,
-                position_1based=event.position_1based,
-                size=len(deleted),
-                sequence=deleted,
-            )
-        )
-
-    applied.reverse()
-    return "".join(seq), applied
-
-
 def canonicalize_sample_events(haplotype: str, events: list[IndelEvent]) -> list[IndelEvent]:
     insertions_by_anchor: dict[int, list[IndelEvent]] = defaultdict(list)
     deletion_intervals: list[tuple[int, int]] = []

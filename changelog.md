@@ -8,6 +8,12 @@ carry forward to the v1.x series.
 ## Unreleased
 
 - Sample auto-discovery is now non-recursive: `*.maf` / `*.maf.gz` are matched only directly in `maf_dir`, not in nested subdirectories. Previously the `{sample}` wildcard could span `/`, so pointing `maf_dir` at a directory that also contained an `example_data/example.maf/` tree (or any nested MAFs) pulled those in as bogus samples, whose contigs failed to intersect and triggered "No contigs are shared across all MAF files."
+- Fixed `allow_multiallelic_snps: false`, which previously never passed the CLI's masking flag and therefore still retained multiallelic sites.
+- Explicit `contigs` entries now all have to resolve to the reference, exactly or through one unambiguous normalized alias. A partially invalid explicit list now fails instead of silently running a subset; automatic contig discovery retains its skip-and-warn behavior.
+- `all_sites.vcf` remains a required scientific output. Site calling now emits compact per-window and per-sample report counters alongside it, and `summary_report.py` reads those counters instead of rescanning every VCF genotype.
+- Removed the unused `maf_threads` setting; site calling is single-threaded and each per-contig job requests one core.
+- Zero-length reference contigs are now rejected rather than taking a duplicated empty-output path. Required MAF and quality-BED inputs now fail with contextual errors for malformed rows instead of silently skipping them.
+- Disabling optional ARGweaver `.sites` output no longer deletes a stale `.sites` file as a side effect of rebuilding `summary.html`; use a clean results directory when changing output modes if stale optional files matter.
 
 ## v1.8
 

@@ -70,9 +70,6 @@ else:
     QUALITY_MIN = None
 
 DEFAULT_MEM_MB = 48000
-# maf_to_sites.py is single-threaded, so reserving more than one core for
-# direct_maf_sites (the only rule using this default) just wastes an allocation.
-DEFAULT_THREADS = 1
 DEFAULT_TIME = "24:00:00"
 SUMMARY_WINDOW_BP = int(config.get("summary_window_bp", 100000))
 if SUMMARY_WINDOW_BP <= 0:
@@ -209,10 +206,11 @@ def _active_contig_resolution() -> tuple[list[str], list[str], list[str], list[t
     if "contigs" in config:
         requested = [str(c) for c in config["contigs"]]
         kept, dropped, remapped = _resolve_requested_contigs(requested, available)
-        if not kept:
+        if dropped:
             raise ValueError(
-                "None of the configured contigs are present in reference .fai: "
-                + ", ".join(requested[:10])
+                "Configured contigs must each have an exact or unambiguous normalized "
+                "match in reference .fai; unmatched or ambiguous: "
+                + ", ".join(dropped[:10])
             )
         return kept, dropped, requested, remapped
 
@@ -271,6 +269,10 @@ def _direct_mask_out(contig):
 
 def _direct_sites_out(contig):
     return Path(str(_direct_prefix(contig)) + ".sites")
+
+
+def _direct_report_stats_out(contig):
+    return Path(str(_direct_prefix(contig)) + ".report_stats.tsv")
 
 
 def _direct_sample_missing_mask_out(contig, sample):
@@ -347,7 +349,6 @@ rule split_sample_maf:
 
 
 rule direct_maf_sites:
-    threads: int(config.get("maf_threads", DEFAULT_THREADS))
     resources:
         mem_mb=int(config.get("maf_mem_mb", DEFAULT_MEM_MB)),
         time=str(config.get("maf_time", DEFAULT_TIME))
@@ -361,6 +362,7 @@ rule direct_maf_sites:
         variants=str(RESULTS_DIR / "sites" / "combined.{contig}.vcf"),
         mask=str(RESULTS_DIR / "sites" / "combined.{contig}.mask.bed"),
         summary=str(RESULTS_DIR / "sites" / "combined.{contig}.site_summary.tsv"),
+        report_stats=str(RESULTS_DIR / "sites" / "combined.{contig}.report_stats.tsv"),
         sample_missing_masks=expand(
             str(RESULTS_DIR / "sites" / "combined.{{contig}}.{sample}.missing.bed"),
             sample=SAMPLES,
@@ -392,6 +394,7 @@ rule direct_maf_sites:
         quality_bed_dir=("" if QUALITY_BED_DIR is None else str(QUALITY_BED_DIR)),
         quality_min=("" if QUALITY_MIN is None else QUALITY_MIN),
         out_prefix=lambda wc: str(_direct_prefix(wc.contig)),
+        window_bp=SUMMARY_WINDOW_BP,
     shell:
         """
         set -euo pipefail
@@ -401,6 +404,7 @@ rule direct_maf_sites:
           --reference-fasta "{input.ref}"
           --contig "{wildcards.contig}"
           --out-prefix "{params.out_prefix}"
+          --window-bp "{params.window_bp}"
           --maf-paths {params.maf_paths}
           --samples {params.samples})
         if [ "{params.max_missing_count}" != "None" ]; then
@@ -411,6 +415,8 @@ rule direct_maf_sites:
         fi
         if [ "{params.allow_multiallelic}" = "True" ]; then
           cmd+=(--allow-multiallelic-snps)
+        else
+          cmd+=(--mask-multiallelic-snps)
         fi
         if [ "{params.mask_indel_adjacent_snps}" = "True" ]; then
           cmd+=(--mask-indel-adjacent-snps)
@@ -430,14 +436,8 @@ rule direct_maf_sites:
 
 rule summary_report:
     input:
-        all_sites=lambda wc: [str(_direct_all_sites_out(c)) for c in _active_contigs()],
-        masks=lambda wc: [str(_direct_mask_out(c)) for c in _active_contigs()],
+        report_stats=lambda wc: [str(_direct_report_stats_out(c)) for c in _active_contigs()],
         summaries=lambda wc: [str(_direct_prefix(c)) + ".site_summary.tsv" for c in _active_contigs()],
-        argweaver_sites=lambda wc: (
-            [str(_direct_sites_out(c)) for c in _active_contigs()]
-            if EMIT_ARGWEAVER_SITES
-            else []
-        ),
         sample_missing_beds=lambda wc: [
             str(_direct_sample_missing_mask_out(c, s))
             for c in _active_contigs()
@@ -449,22 +449,14 @@ rule summary_report:
         report=str(RESULTS_DIR / "summary.html"),
     params:
         window_bp=SUMMARY_WINDOW_BP,
-        emit_argweaver_sites=EMIT_ARGWEAVER_SITES,
-        stale_argweaver_sites=lambda wc: " ".join(
-            shlex.quote(str(_direct_sites_out(c))) for c in _active_contigs()
-        ),
     shell:
         """
         set -euo pipefail
-        if [ "{params.emit_argweaver_sites}" != "True" ]; then
-          rm -f {params.stale_argweaver_sites}
-        fi
         python "{workflow.basedir}/scripts/summary_report.py" \
           --fai "{input.fai}" \
           --window-bp "{params.window_bp}" \
           --report-out "{output.report}" \
-          --all-sites {input.all_sites} \
-          --masked-beds {input.masks} \
+          --report-stats {input.report_stats} \
           --site-summaries {input.summaries} \
           --sample-missing-beds {input.sample_missing_beds} \
           --options-yaml "{input.options_yaml}"

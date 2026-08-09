@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.maf_to_sites import (
     discover_samples,
+    iter_maf_blocks,
     load_quality_mask,
     maf_path_for_sample,
     maf_path_for_sample_with_map,
@@ -139,6 +140,8 @@ def test_maf_to_sites_emits_expected_records_and_mask(tmp_path: Path):
             "chr1",
             "--out-prefix",
             str(out_prefix),
+            "--window-bp",
+            "4",
             "--samples",
             "s1",
             "s2",
@@ -160,6 +163,13 @@ def test_maf_to_sites_emits_expected_records_and_mask(tmp_path: Path):
     assert [record[1] for record in all_records] == ["1", "4", "5", "6", "7"]
     assert [record[1] for record in variant_records] == ["5"]
     assert bed == [("chr1", 1, 3), ("chr1", 7, 8)]
+    assert Path(str(out_prefix) + ".report_stats.tsv").read_text(encoding="utf-8") == (
+        "record_type\tcontig\tstart\tend\tsample\tinvariant\tvariant\tmasked\tcalled\tcarried_variant\n"
+        "window\tchr1\t0\t4\t\t2\t0\t2\t\t\n"
+        "window\tchr1\t4\t8\t\t2\t1\t1\t\t\n"
+        "sample\tchr1\t\t\ts1\t\t\t\t5\t0\n"
+        "sample\tchr1\t\t\ts2\t\t\t\t5\t1\n"
+    )
 
 
 def test_maf_to_sites_emits_per_sample_missing_masks(tmp_path: Path):
@@ -362,7 +372,7 @@ def test_maf_to_sites_masks_multiallelic_when_flagged(tmp_path: Path):
     assert "masked_multiallelic\t1" in summary
 
 
-def test_maf_to_sites_handles_zero_length_contig(tmp_path: Path):
+def test_maf_to_sites_rejects_zero_length_contig(tmp_path: Path):
     ref = tmp_path / "ref.fa"
     # chr1 has sequence; chr0 is an empty record (length 0).
     ref.write_text(">chr0\n\n>chr1\nA\n", encoding="utf-8")
@@ -374,8 +384,7 @@ def test_maf_to_sites_handles_zero_length_contig(tmp_path: Path):
     _write_pairwise_maf(maf_dir / "s1.maf", "chr1", "A", "s1", "A")
 
     out_prefix = tmp_path / "results" / "combined.chr0"
-    # Must not crash (previously raised "cannot mmap an empty file").
-    _run(
+    proc = subprocess.run(
         [
             sys.executable,
             str(Path("scripts") / "maf_to_sites.py"),
@@ -393,23 +402,11 @@ def test_maf_to_sites_handles_zero_length_contig(tmp_path: Path):
             "0",
         ],
         cwd=Path.cwd(),
+        text=True,
+        capture_output=True,
     )
-
-    all_sites = Path(str(out_prefix) + ".all_sites.vcf")
-    variants = Path(str(out_prefix) + ".vcf")
-    masked = Path(str(out_prefix) + ".mask.bed")
-    missing = Path(str(out_prefix) + ".s1.missing.bed")
-    summary = Path(str(out_prefix) + ".site_summary.tsv").read_text(encoding="utf-8")
-
-    # Header-only VCFs, empty BEDs, zeroed summary.
-    assert _read_vcf_records(all_sites) == []
-    assert _read_vcf_records(variants) == []
-    assert _read_vcf_header_line(all_sites).endswith("\ts1")
-    assert _read_bed(masked) == []
-    assert _read_bed(missing) == []
-    assert "contig_length\t0" in summary
-    assert "masked_total\t0" in summary
-    assert "all_sites\t0" in summary
+    assert proc.returncode != 0
+    assert "Reference contig 'chr0' has length 0" in proc.stderr
 
 
 def test_maf_to_sites_emits_argweaver_sites(tmp_path: Path):
@@ -541,37 +538,6 @@ def test_maf_to_sites_argweaver_sites_add_ref_appends_ref_base(tmp_path: Path):
     assert names == ["s1", "s2", "REF"]
     # REF haplotype is appended last and carries the reference base (C at pos 2).
     assert rows == [("2", "CGC")]
-
-
-def test_maf_to_sites_argweaver_sites_empty_contig(tmp_path: Path):
-    ref = tmp_path / "ref.fa"
-    ref.write_text(">chr0\n\n>chr1\nA\n", encoding="utf-8")
-    (tmp_path / "ref.fa.fai").write_text("chr0\t0\t6\t0\t1\nchr1\t1\t14\t1\t2\n", encoding="utf-8")
-
-    maf_dir = tmp_path / "maf"
-    maf_dir.mkdir()
-    _write_pairwise_maf(maf_dir / "s1.maf", "chr1", "A", "s1", "A")
-
-    out_prefix = tmp_path / "results" / "combined.chr0"
-    _run(
-        [
-            sys.executable,
-            str(Path("scripts") / "maf_to_sites.py"),
-            "--maf-dir", str(maf_dir),
-            "--reference-fasta", str(ref),
-            "--contig", "chr0",
-            "--out-prefix", str(out_prefix),
-            "--samples", "s1",
-            "--max-missing-count", "0",
-            "--emit-argweaver-sites",
-        ],
-        cwd=Path.cwd(),
-    )
-
-    names, region, rows = _read_sites(Path(str(out_prefix) + ".sites"))
-    assert names == ["s1"]
-    assert region == ("chr0", "1", "0")
-    assert rows == []
 
 
 def test_maf_to_sites_accepts_pairwise_blocks_with_same_src_names(tmp_path: Path):
@@ -1146,8 +1112,7 @@ def test_load_quality_mask_keeps_only_below_threshold(tmp_path: Path) -> None:
         "track name=quality\n"
         "chrX\t10\t20\t0.95\n"  # passes threshold -> ignored
         "chrX\t30\t40\t0.5\n"  # below threshold -> low quality
-        "chrY\t0\t5\t0.1\n"
-        "chrX\tbad\trow\n",  # malformed -> skipped
+        "chrY\t0\t5\t0.1\n",
         encoding="utf-8",
     )
     mask = load_quality_mask(bed, 0.9)
@@ -1157,6 +1122,55 @@ def test_load_quality_mask_keeps_only_below_threshold(tmp_path: Path) -> None:
     assert mask.is_low("chrX", 40) is False  # half-open end excluded
     assert mask.is_low("chrY", 3) is True
     assert mask.is_low("chrZ", 0) is False
+
+
+@pytest.mark.parametrize(
+    ("row", "message"),
+    [
+        ("chrX\tbad\trow\n", "expected at least 4 fields"),
+        ("chrX\tbad\t20\t0.5\n", "start and end must be integers"),
+        ("chrX\t10\t20\tbad\n", "score must be numeric"),
+    ],
+)
+def test_load_quality_mask_rejects_malformed_data_rows(
+    tmp_path: Path, row: str, message: str
+) -> None:
+    bed = tmp_path / "s.bed"
+    bed.write_text("# comment\n" + row, encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message) as exc_info:
+        load_quality_mask(bed, 0.9)
+
+    assert f"{bed} at line 2" in str(exc_info.value)
+
+
+def test_iter_maf_blocks_rejects_unequal_alignment_strings(tmp_path: Path) -> None:
+    maf = tmp_path / "bad.maf"
+    maf.write_text(
+        "a score=0\n"
+        "s chr1 0 2 + 2 AC\n"
+        "s sample 0 1 + 1 A\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="alignment strings have unequal lengths"):
+        list(iter_maf_blocks(maf))
+
+
+def test_iter_maf_blocks_reports_malformed_numeric_field_context(tmp_path: Path) -> None:
+    maf = tmp_path / "bad.maf"
+    maf.write_text("a score=0\ns chr1 nope 2 + 2 AC\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"bad\.maf at line 2.*must be integers"):
+        list(iter_maf_blocks(maf))
+
+
+def test_iter_maf_blocks_rejects_short_sequence_row(tmp_path: Path) -> None:
+    maf = tmp_path / "bad.maf"
+    maf.write_text("a score=0\ns chr1 0 2 + 2\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"bad\.maf at line 2.*expected 7 fields"):
+        list(iter_maf_blocks(maf))
 
 
 def test_quality_mask_treats_plus_strand_bases_as_missing(tmp_path: Path):

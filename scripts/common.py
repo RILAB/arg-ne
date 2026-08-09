@@ -47,18 +47,6 @@ def normalize_contig(name: str) -> str:
     return name if name else "0"
 
 
-def read_fasta_contigs(path: Path) -> list[str]:
-    contigs: list[str] = []
-    try:
-        with open_fasta(path) as handle:
-            for line in handle:
-                if line.startswith(">"):
-                    contigs.append(line[1:].strip().split()[0])
-    except OSError:
-        pass
-    return contigs
-
-
 def _maf_reference_contigs(lines: Iterable[str]) -> set[str]:
     contigs: set[str] = set()
     first_src: str | None = None
@@ -87,32 +75,8 @@ def _maf_reference_contigs(lines: Iterable[str]) -> set[str]:
 
 
 def read_maf_contigs(path: Path) -> set[str]:
-    try:
-        with open_text(path, "rt", errors="ignore") as handle:
-            return _maf_reference_contigs(handle)
-    except OSError:
-        return set()
-
-
-def extract_info_int(info: str, key: str) -> int | None:
-    if info == ".":
-        return None
-    prefix = f"{key}="
-    for field in info.split(";"):
-        if field.startswith(prefix):
-            try:
-                return int(field.split("=", 1)[1])
-            except ValueError:
-                return None
-    return None
-
-
-def extract_end(info: str) -> int | None:
-    return extract_info_int(info, "END")
-
-
-def extract_dp(info: str) -> int | None:
-    return extract_info_int(info, "DP")
+    with open_text(path, "rt", errors="ignore") as handle:
+        return _maf_reference_contigs(handle)
 
 
 def merge_intervals(intervals: list[tuple[int, int]]) -> list[tuple[int, int]]:
