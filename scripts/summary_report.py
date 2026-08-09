@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import math
 import re
 import subprocess
 from datetime import datetime
@@ -168,6 +169,26 @@ def to_percentages(counts: list[int], length: int, window_bp: int) -> list[float
     return values
 
 
+def nice_axis_max(peak: float) -> float:
+    """Round ``peak`` up to a readable axis bound (1, 2, 2.5, or 5 x 10^k).
+
+    Used for the variable-site plot, whose values are typically well under 5%
+    and would be an invisible flat line on the 0-100% axis the invariant and
+    missing series need.
+    """
+    if not peak > 0:
+        return 1.0
+    if peak >= 100.0:
+        return 100.0
+    exponent = math.floor(math.log10(peak))
+    magnitude = 10.0**exponent
+    for step in (1.0, 2.0, 2.5, 5.0, 10.0):
+        candidate = step * magnitude
+        if peak <= candidate + 1e-12:
+            return min(candidate, 100.0)
+    return 100.0
+
+
 def fmt_int(s: str) -> str:
     try:
         return f"{int(s):,}"
@@ -183,13 +204,17 @@ def svg_combined_plot(
     xs: list[int],
     series: list[tuple[str, str, list[float]]],
     *,
+    y_max: float = 100.0,
+    y_label: str = "% of window",
     width: int = 900,
     height: int = 300,
 ) -> str:
-    """Multi-series line plot; y-axis fixed 0–100% for comparability across contigs.
+    """Multi-series line plot over window midpoints.
 
-    Uses polylines only (no per-point circles) to keep SVG element count low
-    even for large chromosomes with thousands of windows.
+    ``y_max`` is supplied by the caller rather than derived per plot, so every
+    contig shares one axis and stays comparable to the others. Uses polylines
+    only (no per-point circles) to keep SVG element count low even for large
+    chromosomes with thousands of windows.
     """
     margin = {"left": 60, "right": 20, "top": 28, "bottom": 55}
     plot_w = width - margin["left"] - margin["right"]
@@ -198,7 +223,8 @@ def svg_combined_plot(
     x_max = max(xs) if xs else 1
     if x_max == x_min:
         x_max = x_min + 1
-    y_max = 100.0
+    if not y_max > 0:
+        y_max = 1.0
 
     def x_scale(x_val: int) -> float:
         return margin["left"] + (x_val - x_min) / (x_max - x_min) * plot_w
@@ -239,21 +265,29 @@ def svg_combined_plot(
     )
     parts.append(
         f'<text x="16" y="{height / 2}" text-anchor="middle" font-size="12" '
-        f'font-family="sans-serif" transform="rotate(-90 16 {height / 2})">% of window</text>'
+        f'font-family="sans-serif" transform="rotate(-90 16 {height / 2})">{html.escape(y_label)}</text>'
     )
 
-    # y ticks
+    # y ticks. The axis is split into quarters, so a bound like 5 gives a step
+    # of 1.25 and a bound like 0.05 gives 0.0125. Use the fewest decimals that
+    # represent every tick exactly, rather than rounding 1.25 to "1".
+    tick_values = [i / 4 * y_max for i in range(5)]
+    decimals = 0
+    while decimals < 4 and any(
+        abs(round(v, decimals) - v) > 1e-12 for v in tick_values
+    ):
+        decimals += 1
     for i in range(5):
         frac = i / 4
         y = margin["top"] + plot_h - frac * plot_h
-        val = frac * y_max
+        val = tick_values[i]
         parts.append(
             f'<line x1="{margin["left"] - 4}" y1="{y:.2f}" '
             f'x2="{margin["left"]}" y2="{y:.2f}" stroke="#333" stroke-width="1"/>'
         )
         parts.append(
             f'<text x="{margin["left"] - 8}" y="{y + 4:.2f}" text-anchor="end" '
-            f'font-size="10" font-family="sans-serif">{val:.0f}</text>'
+            f'font-size="10" font-family="sans-serif">{val:.{decimals}f}</text>'
         )
 
     # x ticks
@@ -274,7 +308,9 @@ def svg_combined_plot(
     for idx, (label, color, values) in enumerate(series):
         if not values:
             continue
-        points = " ".join(f"{x_scale(x):.2f},{y_scale(y):.2f}" for x, y in zip(xs, values))
+        points = " ".join(
+            f"{x_scale(x):.2f},{y_scale(min(y, y_max)):.2f}" for x, y in zip(xs, values)
+        )
         parts.append(
             f'<polyline fill="none" stroke="{color}" stroke-width="2" points="{points}"/>'
         )
@@ -661,6 +697,22 @@ tr.bad  td{background:#ffd7d7}
         w("</div>\n")
 
         # ── per-contig sections ───────────────────────────────────────────────
+        # One variable-site axis bound shared by every contig: auto-scaling each
+        # plot independently would make the y-axis mean something different in
+        # each section and silently break cross-contig comparison, which is why
+        # the axis was pinned to 0-100% in the first place.
+        variable_peak = max(
+            (
+                pct
+                for c in active_contigs
+                for pct in to_percentages(
+                    variant_counts.get(c, []), lengths[c], window_bp
+                )
+            ),
+            default=0.0,
+        )
+        variable_axis_max = nice_axis_max(variable_peak)
+
         for contig in active_contigs:
             length = lengths[contig]
             xs = window_midpoints(length, window_bp)
@@ -728,13 +780,22 @@ tr.bad  td{background:#ffd7d7}
                     )
                 w("</table>\n")
 
+            # Invariant and missing are complementary shares of the window and
+            # belong on a fixed 0-100% axis. Variable sites are typically a
+            # fraction of a percent, so they get their own axis; that axis bound
+            # is global (see variable_axis_max) so contigs stay comparable.
             w(svg_combined_plot(
                 xs,
                 [
                     ("Invariant (%)", "#4C78A8", inv_pct),
-                    ("Variable (%)", "#F58518", var_pct),
                     ("Missing (%)", "#E45756", miss_pct),
                 ],
+            ))
+            w(svg_combined_plot(
+                xs,
+                [("Variable (%)", "#F58518", var_pct)],
+                y_max=variable_axis_max,
+                y_label="% variable of window",
             ))
 
             # per-MAF breakdown for this contig

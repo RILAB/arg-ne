@@ -1,19 +1,71 @@
 # Changelog
 
-Versions are git tags; check out the most recent (e.g. `git checkout v1.7`).
+Versions are git tags; check out the most recent (e.g. `git checkout v1.9`).
 v1.0 was a full rewrite from the legacy TASSEL/gVCF/GATK pipeline — the
 pre-v1.0 (`v0.x`) entries at the bottom describe that older lineage and do not
 carry forward to the v1.x series.
 
-## Unreleased
+## v1.9
 
+Acts on the [2026-08-09 code review](reports/code_review/2026-08-09.md). The
+primary scientific outputs (`all_sites.vcf`, `combined.<contig>.vcf`,
+`mask.bed`, `site_summary.tsv`, `*.missing.bed`) keep the same formats and
+semantics; the changes are one correctness fix, a stricter configuration and
+input-validation contract, and a reporting-path simplification.
+
+### Behavior changes (review your config when upgrading)
+
+- Fixed `allow_multiallelic_snps: false`, which previously never passed the CLI's masking flag and therefore still retained multiallelic sites. **Runs that set this to `false` did not get what they asked for and will now produce fewer retained sites.** `true` (the default) is unaffected.
+- Explicit `contigs` entries now all have to resolve to the reference, exactly or through one unambiguous normalized alias. A partially invalid explicit list now fails and names the unresolved entries, instead of silently running a subset. Automatic contig discovery retains its skip-and-warn behavior.
+- Contig-name normalization now strips an assembly/genome prefix when it precedes a `chr` token, so `chr2`, `Zm-B73v5.chr2`, and `Zx-TIL25.chr2` all resolve to contig `2`. The rule is gated on the `chr` token, so accession-style names such as `NC_050096.1` (where `.1` is a version suffix) are left intact. This can make previously unmatched contigs resolve, and MAFs whose reference contigs differ only by assembly prefix now intersect.
 - Sample auto-discovery is now non-recursive: `*.maf` / `*.maf.gz` are matched only directly in `maf_dir`, not in nested subdirectories. Previously the `{sample}` wildcard could span `/`, so pointing `maf_dir` at a directory that also contained an `example_data/example.maf/` tree (or any nested MAFs) pulled those in as bogus samples, whose contigs failed to intersect and triggered "No contigs are shared across all MAF files."
-- Fixed `allow_multiallelic_snps: false`, which previously never passed the CLI's masking flag and therefore still retained multiallelic sites.
-- Explicit `contigs` entries now all have to resolve to the reference, exactly or through one unambiguous normalized alias. A partially invalid explicit list now fails instead of silently running a subset; automatic contig discovery retains its skip-and-warn behavior.
-- `all_sites.vcf` remains a required scientific output. Site calling now emits compact per-window and per-sample report counters alongside it, and `summary_report.py` reads those counters instead of rescanning every VCF genotype.
-- Removed the unused `maf_threads` setting; site calling is single-threaded and each per-contig job requests one core.
-- Zero-length reference contigs are now rejected rather than taking a duplicated empty-output path. Required MAF and quality-BED inputs now fail with contextual errors for malformed rows instead of silently skipping them.
-- Disabling optional ARGweaver `.sites` output no longer deletes a stale `.sites` file as a side effect of rebuilding `summary.html`; use a clean results directory when changing output modes if stale optional files matter.
+- Removed the unused `maf_threads` setting; site calling is single-threaded and each per-contig job requests one core. The key is now ignored if left in an existing `options.yaml`; drop it and keep tuning `maf_mem_mb` / `maf_time`.
+
+### Fail fast on malformed or degenerate input
+
+Previously these cases were silently absorbed, turning bad input into missing
+data, skipped contigs, or partial summaries. They now raise with the file and
+line number.
+
+- Zero-length reference contigs are rejected rather than taking a duplicated empty-output path (`write_empty_contig_outputs` and its tests are gone). A 1 bp contig still works through the normal path.
+- MAF `s` rows with fewer than 7 fields, or non-integer `start`/`size`/`srcSize`, now raise. Alignment blocks whose sequence strings have unequal lengths now raise instead of being silently truncated by `zip`.
+- Quality-BED rows with fewer than 4 fields, or non-numeric coordinates/score, now raise. Comment, `track`, and `browser` lines are still skipped.
+- Documented that **soft masking is ignored**: reference and query sequences are upper-cased before calling, so lowercase repeat-masked bases are genotyped like any other. A soft-masked reference — the default distribution format for most released genomes — has its repeat content called, not excluded. Hard masking still works, since `N` is non-ACGT and counts as missing. No behavior change; this was previously undocumented, and it is a scientific choice rather than an implementation detail.
+- `read_maf_contigs` no longer swallows `OSError`; an unreadable or missing MAF fails during contig discovery rather than contributing an empty contig set.
+
+### Reporting path
+
+- `all_sites.vcf` remains a required scientific output — it is *not* being made optional or removed. Instead, site calling now accumulates report counters during the pass it was already making and writes `sites/combined.<contig>.report_stats.tsv`: one `window` row per `summary_window_bp` window (invariant / variant / masked counts) and one `sample` row per sample (called and variant-carrying retained sites).
+- `summary_report.py` reads those counters instead of reparsing every genotype cell of every `all_sites.vcf` and re-binning every `mask.bed` interval. On chromosome-scale data this removes a second full pass over the largest artifact. Reported values are unchanged.
+- `maf_to_sites.py` gained `--window-bp` (default 100000); the workflow passes `summary_window_bp` so the counters and the report always agree on window boundaries.
+- `summary_report.py`'s `--all-sites` and `--masked-beds` arguments were replaced by `--report-stats`. Anyone invoking the script outside the workflow must update their command.
+- Report-stats parsing is strict: an unexpected header, column count, or record type raises instead of being skipped.
+
+### Optional ARGweaver `.sites` output
+
+- Disabling `emit_argweaver_sites` no longer deletes a stale `.sites` file as a side effect of rebuilding `summary.html`. Cleanup was unrelated to report generation; use a clean results directory when changing output modes if stale optional files matter.
+- Consequently `.sites` files are no longer inputs to the `summary_report` rule. Ordinary runs are unaffected: `.sites` is a declared output of `direct_maf_sites`, which has to run anyway, so any fresh run produces it — whether you use the default `all` target or ask only for `results/summary.html`. The one case that changed is enabling `emit_argweaver_sites` in a results directory whose other outputs are already up to date. The default target still produces `.sites` there, because `rule all` lists it; asking only for `results/summary.html` does not, because nothing in that sub-DAG forces `direct_maf_sites` to re-run. Use the default target when toggling the flag in place.
+
+### Summary report plot scaling
+
+- Split the per-contig plot in two. Invariant and missing are complementary shares of a window and keep the fixed 0–100% axis; variable sites, typically a fraction of a percent, were an unreadable flat line against that axis and now get their own plot.
+- The variable-site axis is auto-scaled but **shared across all contigs**, rounded up to a readable 1/2/2.5/5 × 10ᵏ bound. Scaling each contig independently would have made the y-axis mean something different in each section and silently broken cross-contig comparison — the reason the axis was pinned to 0–100% originally.
+- Axis ticks now carry enough decimals to be exact. A quartered axis produces steps like 1.25, which the previous integer formatting rendered as `0, 1, 2, 4, 5`.
+- This removes the need for the deleted `chr1_variable_plot.py` (below), which existed only to work around the flattening.
+
+### Removed dead code
+
+None of these had callers in the workflow, but they were importable, so remove them from any external scripts:
+
+- `scripts/common.py`: `read_fasta_contigs`, `extract_info_int`, `extract_end`, `extract_dp`.
+- `scripts/summary_report.py`: `read_mask_percentages`, and the never-consumed `per_sample_missing_retained_by_contig` aggregation.
+- `scripts/simulate_msprime_indels.py`: `apply_indel_events` (exercised only by its own unit test, not by the simulation CLI).
+- Deleted the `scripts/chr1_variable_plot.py` helper. It re-parsed SVG polyline coordinates back out of a generated `summary.html` to redraw the chromosome-1 variable-site line on an auto-scaled y-axis, working around the combined plot's fixed 0–100% scale. Reading a rendered chart back in as a data source was brittle and assumed chromosome-specific element IDs and chart geometry; the fix belongs in the report's y-axis scaling, not in a downstream re-render.
+- Kept `scripts/window_to_fasta.py`; retaining `all_sites.vcf` as a required output keeps its design valid, since reconstructing sequence from the reference is only sound when invariant positions were positively called. The README section is now titled "Auxiliary scripts" and states explicitly that no workflow rule invokes them. Its entry now documents that output is a reference-anchored substitution view, not a true alignment: insertions consume no reference coordinate and are dropped, deletions are recorded as missing and render as `N`, and an `N` therefore conflates unaligned, deleted, ambiguous, and below-`quality_min` bases.
+
+### Tests
+
+- 109 tests pass (was 77). Every config key that changes which sites are retained now has a both-states end-to-end workflow test proving the YAML value actually reaches the caller — `allow_multiallelic_snps`, `max_missing_fraction`, `mask_indel_adjacent_snps`, `add_ref`, and `quality_bed_dir`/`quality_min`. Only the first was broken; the rest were verified correct. This closes the gap that let the multiallelic defect sit behind a green suite, since the CLI flags themselves had unit tests all along. Also new: explicit-`contigs` hard failure vs. discovery skip-and-warn, non-recursive sample discovery, assembly-prefix normalization, strict MAF/BED/report-stats parsing, the report built from `report_stats.tsv`, and axis-bound rounding, tick precision, and out-of-range clamping for the plots. Tests for the deleted zero-length-contig writer and `apply_indel_events` were removed with the code.
 
 ## v1.8
 

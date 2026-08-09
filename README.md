@@ -8,7 +8,7 @@ Ross-Ibarra, J. 2026. ARGprep: A pipeline to prepare pairwise whole-genome align
 
 If your use case is pairwise variant discovery (SNPs, large indels, inversions) rather than ARG-ready all-sites output, [wgatools](https://github.com/wjwei-handsome/wgatools) is a potential alternative. See [WGATOOLS_COMPARISON.md](WGATOOLS_COMPARISON.md) for a detailed comparison of the two approaches.
 
-> **Which version to use:** check out the most recent tagged commit (e.g. `git checkout v1.7`) rather than an older release. See [changelog.md](changelog.md) for a per-version breakdown of changes.
+> **Which version to use:** check out the most recent tagged commit (e.g. `git checkout v1.9`) rather than an older release. See [changelog.md](changelog.md) for a per-version breakdown of changes.
 
 ## Requirements
 
@@ -88,6 +88,12 @@ Missingness thresholds:
 - The fraction is converted to a count with downward truncation. For example, with 10 samples, `0.15` allows `1` missing sample.
 - **If neither is set, the default is 0 - any site where even one sample is unaligned or missing is masked.** Set one of these options explicitly if you want to retain sites with partial coverage.
 - A sample counts as missing at a site if it has no alignment block covering that position, carries a gap (`-`), an `N`, or any other non-ACGT character. To drop every site overlapped by a deletion in any sample, set `max_missing_count: 0` (the default) — gaps always contribute to the missing-sample count.
+
+Repeat masking and sequence case:
+
+- **Soft masking is ignored.** Reference and query sequences are upper-cased before calling, so lowercase repeat-masked bases are called exactly like uppercase ones. A soft-masked reference (the default distribution format for most released genomes, including B73 v5) will therefore have its repeat content genotyped, not excluded.
+- Hard masking is honored, because it is indistinguishable from missing data: `N` is non-ACGT and counts toward the missing-sample thresholds above.
+- If you want repeats excluded from ARG inference, ARGprep will not do it for you as a side effect of soft masking. Either supply a hard-masked reference, or pass repeat intervals through `quality_bed_dir` / `quality_min`.
 
 Adjacent-SNP masking is documented in detail in [NOTES.md](NOTES.md).
 
@@ -179,14 +185,17 @@ Outputs are written under `results/` by default (or under `results_dir` if provi
 - `sites/combined.<contig>.report_stats.tsv` — compact window and per-sample counters used to build `summary.html`; the report does not rescan `all_sites.vcf`
 - `sites/combined.<contig>.sites` — ARGweaver-format sites file (variant sites only; one real base per pseudo-haploid sample, `N` for missing). Emitted only when `emit_argweaver_sites: true`
 - `sites/combined.<contig>.<sample>.missing.bed` — per-sample missing regions used by per-MAF summary stats; 4-column BED (`chrom`, `start`, `end`, `sample`)
-- `summary.html` — genome-wide overview plus per-MAF tables and per-contig per-MAF breakdowns
+- `summary.html` — genome-wide overview plus per-MAF tables and per-contig per-MAF breakdowns. Each contig gets two binned plots: invariant and missing on a fixed 0–100% axis, and variable sites on their own auto-scaled axis (variable sites are usually a fraction of a percent and are unreadable at 0–100%). The variable axis bound is computed once across all contigs, so contigs remain directly comparable to each other.
 - `maf_by_contig/<sample>/<contig>.maf.gz` — intermediate per-contig MAF chunks produced by the `split_sample_maf` stage (each per-sample MAF is partitioned by reference contig so site calling reads only the relevant slice, and chunks are gzip-compressed to avoid duplicating the alignment corpus uncompressed); these are regenerable intermediates, not final outputs
 
 Both VCFs share the same header and use a single haploid `GT` per sample (`0` for the REF allele, `1`/`2`/... for ALTs in `ALT` order, `.` for missing). `INFO` carries `NS` (non-missing samples), `MS` (missing samples), and `SC` (`invariant` or `variant`). All retained sites are emitted with `FILTER=PASS`; filtered-out positions appear in the BED mask, not the VCFs.
 
 `all_sites.vcf` remains a required scientific output containing invariant as well as variant retained sites. Report statistics are accumulated during the same calling pass and written separately so generating `summary.html` does not reread the large VCF.
 
-Optional `.sites` files are generated only when enabled. Disabling `emit_argweaver_sites` in a results directory previously used with it does not delete stale `.sites` files; start from a clean results directory when changing output modes if that distinction matters.
+Optional `.sites` files are generated only when enabled. Two caveats apply when toggling `emit_argweaver_sites` inside a results directory you have already run:
+
+- **Enabling it:** run the default target (plain `snakemake --configfile options.yaml`). If you ask only for `results/summary.html`, nothing in that part of the DAG forces the site-calling rule to re-run, so no `.sites` file is written. A fresh results directory produces `.sites` either way.
+- **Disabling it:** stale `.sites` files from a previous run are left in place rather than deleted. Start from a clean results directory if that distinction matters.
 
 The `site_summary.tsv` contains one metric per row with columns `metric` and `value`:
 
@@ -280,9 +289,50 @@ Summary fields include:
 - `total_snps`
 - `snps_without_overlapping_indel`
 
-## Helper scripts
+## Auxiliary scripts
 
-These are standalone utilities that are not part of the Snakemake workflow; run them by hand against a completed run's outputs.
+These are standalone utilities that are **not** part of the Snakemake workflow. No rule
+invokes them, they are not run by `snakemake`, and their outputs are not part of the
+pipeline's deliverables. Run them by hand against a completed run's outputs.
 
-- [scripts/window_to_fasta.py](scripts/window_to_fasta.py) — builds a reference-anchored multi-FASTA alignment for a single window from a `combined.<contig>.all_sites.vcf` and the per-sample `*.missing.bed` masks, writing the reference plus one sequence per sample with masked positions as `N`.
-- [scripts/chr1_variable_plot.py](scripts/chr1_variable_plot.py) — re-renders the chromosome-1 variable-site line from a run's `summary.html` with an auto-scaled y-axis (the combined plot is locked to 0–100%, which flattens the signal); the variable percentages are read straight from the existing polyline rather than rescanning the VCF.
+### `window_to_fasta.py`
+
+[scripts/window_to_fasta.py](scripts/window_to_fasta.py) builds a reference-anchored
+multi-FASTA for a single window, so you can eyeball a region as sequence rather than as
+a variant table:
+
+```bash
+python scripts/window_to_fasta.py \
+  --vcf results/sites/combined.<contig>.all_sites.vcf \
+  --bed-dir results/sites \
+  --reference /path/to/reference.fa \
+  --contig <contig> --start <start> --end <end> \
+  --out window.fa
+```
+
+`--start`/`--end` are 1-based inclusive. Output is the reference sequence followed by one
+sequence per sample. It builds each sample by starting from the reference, overwriting
+positions where that sample's `GT` names a different allele, then overwriting every
+interval in `combined.<contig>.<sample>.missing.bed` with `N`.
+
+It requires `all_sites.vcf` rather than the variant-only VCF: starting from the reference
+and patching in differences is only sound if every invariant position was positively
+called as matching reference. The variant-only VCF cannot distinguish "called, matches
+reference" from "never assessed".
+
+**Indels are not represented, in either direction.** Every output sequence is exactly the
+window length and contains no gap characters, because the whole pipeline works in
+reference coordinates:
+
+- An **insertion** in a sample consumes no reference position, so the inserted bases are
+  dropped and leave no trace in the FASTA.
+- A **deletion** in a sample is recorded as *missing*, not as a gap, so it appears as `N`.
+
+An `N` is therefore ambiguous: it may mean the sample never aligned there, that the
+sample carries a deletion, that the base was `N`/ambiguous in the MAF, or that it fell
+below `quality_min`. The per-sample `.missing.bed` merges those same cases and cannot
+separate them either; recovering that distinction means going back to the MAF. Treat the
+output as a reference-anchored substitution view, not as a true alignment.
+
+The window is held in memory once per sample, so this is intended for kilobase-scale
+windows, not whole chromosomes.
